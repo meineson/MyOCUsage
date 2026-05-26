@@ -410,7 +410,7 @@ def _create_row_view(title_text):
 
     title = _make_label(title_text, 8, 45)
     bar = _make_progress()
-    bar.setFrame_(NSMakeRect(54, 6, PROGRESS_W, PROGRESS_H))
+    bar.setFrame_(NSMakeRect(54, 5, PROGRESS_W, PROGRESS_H))
     pct_label = _make_label("", 143, 28, align_right=True, bold=True)
     reset_label = _make_label("", 174, 82, align_right=True)
 
