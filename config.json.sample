@@ -1,0 +1,21 @@
+{
+  "_使用说明": "参考 README.md 获取完整配置指南",
+
+  "cookies": "oc_locale=zh; auth=Fe26.2**你的认证token**",
+  "_cookies说明": "浏览器 F12 → Network → 点任意 _server 请求 → 复制 Request Headers 中的 Cookie 字段完整值",
+
+  "workspace_id": "wrk_xxxxxxxxxxxxxxxxxxxxx",
+  "_workspace说明": "访问 https://opencode.ai/workspace/{这里就是你工作区ID}/go ，从地址栏复制",
+
+  "server_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "_server说明": "与 workspace_id 同页面，F12 → Network → _server 请求 → Request Headers 中的 x-server-id",
+
+  "server_instance": "server-fn:3",
+  "_server_instance说明": "同上页面，F12 → Network → _server 请求 → x-server-instance",
+
+  "plan_monthly_limit": null,
+  "_limit说明": "如果 API 返回的数据不含用量上限，可在此手动填写美元金额作为百分比计算基准（例如 100）",
+
+  "refresh_interval": 60,
+  "_刷新说明": "状态栏自动刷新间隔（秒）"
+}
