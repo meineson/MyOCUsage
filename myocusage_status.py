@@ -347,7 +347,7 @@ def _apply_icon(app, pct, angle):
 
 ROW_W = 240
 ROW_H = 22
-PROGRESS_W = 110
+PROGRESS_W = 85
 PROGRESS_H = 10
 
 
@@ -383,8 +383,8 @@ def _create_row_view(title_text):
 
     title = _make_label(title_text, 8, 50)
     bar = _make_progress()
-    bar.setFrame_(NSMakeRect(60, 6, PROGRESS_W, PROGRESS_H))
-    detail = _make_label("", 175, 60, align_right=True)
+    bar.setFrame_(NSMakeRect(58, 6, PROGRESS_W, PROGRESS_H))
+    detail = _make_label("", 148, 85, align_right=True)
 
     view.addSubview_(title)
     view.addSubview_(bar)
@@ -536,7 +536,7 @@ class MyocUsageApp(rumps.App):
                 pct = used / limit * 100 if limit else used
                 bar.setDoubleValue_(pct)
                 reset_str = _fmt_reset(reset) if reset is not None else ""
-                detail.setStringValue_(f"{pct:.0f}%\u2003{reset_str}")
+                detail.setStringValue_(f"{pct:.0f}%  {reset_str}")
             else:
                 bar.setDoubleValue_(0)
                 detail.setStringValue_("--")
