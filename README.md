@@ -6,11 +6,13 @@ macOS 菜单栏应用，在状态栏实时显示 OpenCode 的 5 小时 / 本周 
 
 ## 功能
 
--   **菜单栏图标**：蓝色瓶子图标 + 用量百分比
--   **三个时段**：5 小时滚动、本周、本月用量
+-   **动态瓶子图标**：用量越低瓶子越满、越直立；用量越高瓶子越空、越倾斜；颜色从🟢绿→🟠橙→🔴红渐变
+-   **三个时段**：5 小时滚动、本周、本月用量（状态栏优先显示最高值）
 -   **进度条**：用量可视化的 ASCII 进度条
 -   **倒计时**：距离用量重置的剩余时间（≤24h 显示 HH:MM:SS，>24h 显示 MM-DD HH:MM）
+-   **动画效果**：刷新时瓶子过冲回弹，用量重置时摇晃站稳，手动刷新轻晃反馈
 -   **自动刷新**：默认每 60 秒自动更新
+-   **防重复启动**：自动检测已有进程，避免重复运行
 -   **后台运行**：启动后自动守护进程化，不占用终端
 
 ## 安装
@@ -70,28 +72,29 @@ cp config.json.sample config.json
 python3 myocusage_status.py
 ```
 
-启动后终端自动返回，应用在后台运行。
+启动后终端自动返回，应用在后台运行。再次运行脚本会检测已有进程并提示退出。
 
 ### 菜单项
 
 -   **5 小时 / 本周 / 本月**：各时段用量百分比、进度条和重置倒计时
--   **🔄 手动刷新**：立即刷新用量数据
+-   **🔄 手动刷新**：立即刷新用量数据（瓶子轻晃反馈）
 -   **🚪 退出**：退出应用
 
 ## 技术说明
 
 -   通过 OpenCode 的 Convex RPC 端点（`_server`）获取用量数据
 -   内置 Convex JavaScript 响应格式解析器（处理 `!0`/`!1`、`$R[N]={...}` 等 JS 表达式）
--   使用 `rumps` (Ridiculously Uncomplicated macOS Python Statusbar apps) 实现菜单栏
+-   使用 `rumps` + `PyObjC` 实现 macOS 菜单栏；图标由 `Pillow` 实时绘制（512×512 → 44×44）
+-   支持动画帧序列：过冲回弹、阻尼摇晃（通过 `rumps.Timer` 驱动）
+-   使用 PID 文件（`~/.myocusage.pid`）防止进程重复启动
 
 ## 文件结构
 
 ```
 myocusage/
 ├── myocusage_status.py   # 主程序
-├── config.json           # 配置文件
+├── config.json           # 配置文件（.gitignore 排除）
 ├── config.json.sample    # 配置模板
-├── bottle_icon_small.png # 菜单栏图标
 ├── requirements.txt      # Python 依赖
 └── run.sh                # 一键安装启动脚本
 ```
