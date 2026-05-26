@@ -209,7 +209,7 @@ def _autostart_enabled():
 # ── 动态瓶子图标 ─────────────────────────────────
 
 _LIQUID_COLORS = [
-    (30,  (50, 180, 60)),     # 绿
+    (30,  (60, 130, 220)),    # 蓝
     (60,  (245, 166, 35)),    # 橙
     (80,  (245, 124, 0)),     # 深橙
     (100, (229, 57, 53)),     # 红
@@ -228,47 +228,51 @@ def _bottle_angle(pct):
 
 
 def _render_bottle(usage_pct, angle=0):
-    """简洁风格瓶子图标 — 512x512 绘制 → 44x44 保存"""
+    """魔法药水瓶图标 — 大肚子圆身造型"""
     S = 512
-    cx = S // 2
 
-    # 比例: 全身高 10 份, 瓶身宽 5 份
-    total_h = S * 0.82
-    body_w = int(total_h * 0.50)
-    cap_h = int(total_h * 0.10)
-    neck_h = int(total_h * 0.12)
-    body_h = total_h - cap_h - neck_h
-    body_w = int(body_w * 1.0 if body_w % 2 == 0 else body_w + 1)
-
-    cap_y = int(S * 0.04)
-    neck_y = cap_y + cap_h
-    body_y = int(neck_y + neck_h * 0.85)
+    body_w = int(S * 0.68)
+    body_w = body_w if body_w % 2 == 0 else body_w + 1
+    body_h = body_w
+    cork_h = 20
+    neck_h = 42
+    
+    cork_y = S - body_h - cork_h - neck_h
+    neck_y = cork_y + cork_h
+    body_y = neck_y + neck_h
 
     body_x = (S - body_w) // 2
-    neck_w = int(body_w * 0.30)
+    neck_w = int(body_w * 0.24)
     neck_x = (S - neck_w) // 2
-    cap_w = neck_w + int(neck_w * 0.20)
-    cap_x = (S - cap_w) // 2
+    cork_w = neck_w + int(neck_w * 0.25)
+    cork_x = (S - cork_w) // 2
+
+    def _draw_sparkle(d, cx, cy, r, color):
+        pts = []
+        for i in range(8):
+            a = math.pi * 2 * i / 8 - math.pi / 2
+            rr = r if i % 2 == 0 else r * 0.35
+            pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
+        d.polygon(pts, fill=color)
 
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     glass = (180, 180, 180)
 
-    # 瓶盖 — 简洁
-    draw.rounded_rectangle([cap_x, cap_y, cap_x + cap_w, cap_y + cap_h],
-                           radius=5, fill=(55, 125, 200), outline=(35, 95, 170))
+    # 软木塞
+    draw.rounded_rectangle([cork_x, cork_y, cork_x + cork_w, cork_y + cork_h],
+                           radius=4, fill=(160, 120, 80), outline=(130, 95, 55))
 
     # 瓶颈
     draw.rectangle([neck_x, neck_y, neck_x + neck_w, body_y],
                    fill=(240, 240, 240), outline=glass, width=3)
 
-    # 瓶身 — 圆角矩形
-    body_r = 24
+    body_r = int(body_w * 0.45)
     bb = (body_x, body_y, body_x + body_w, body_y + body_h)
     draw.rounded_rectangle(bb, radius=body_r, outline=glass, width=4)
 
-    # 瓶身填充 (透明玻璃)
+    # 瓶身填充
     bmask = Image.new("L", (S, S), 0)
     ImageDraw.Draw(bmask).rounded_rectangle(bb, radius=body_r, fill=255)
     bg = Image.new("RGBA", (S, S), (0, 0, 0, 0))
@@ -287,24 +291,54 @@ def _render_bottle(usage_pct, angle=0):
         layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
         ImageDraw.Draw(layer).rounded_rectangle(
             [body_x + 6, body_y + body_h - liquid_h, body_x + body_w - 6, body_y + body_h - 4],
-            radius=20, fill=color)
+            radius=int(body_r * 0.8), fill=color)
         img = Image.alpha_composite(
             img,
             Image.composite(layer, Image.new("RGBA", (S, S), (0, 0, 0, 0)), mask),
         )
+        # 魔法气泡
+        if liquid_h > 30:
+            bubble = ImageDraw.Draw(img)
+            for bx, by in [(body_x + body_w // 3, body_y + body_h - liquid_h + 20),
+                           (body_x + body_w * 2 // 3, body_y + body_h - liquid_h + 45)]:
+                bubble.ellipse([bx - 3, by - 3, bx + 3, by + 3],
+                               fill=(255, 255, 255, 100))
 
-    # 高光
+    # 高光白点
     draw = ImageDraw.Draw(img)
-    hx = body_x + body_w * 0.12
-    hw = body_w * 0.10
-    draw.rectangle([int(hx), body_y + 20, int(hx + hw), body_y + body_h - 20],
-                   fill=(255, 255, 255, 45))
+    hx = body_x + body_w * 0.10
+    for dy in [body_h * 0.20, body_h * 0.38, body_h * 0.56]:
+        r = int(body_w * 0.025)
+        draw.ellipse([int(hx - r), int(body_y + dy - r),
+                      int(hx + r), int(body_y + dy + r)],
+                     fill=(255, 255, 255, 60))
 
     # 瓶底
     base_h = int(body_h * 0.04)
     draw.rounded_rectangle(
         [body_x + 6, body_y + body_h - base_h, body_x + body_w - 6, body_y + body_h],
         radius=4, fill=(200, 200, 200), outline=glass)
+
+    # 瓶口喷发粒子
+    origin_x = neck_x + neck_w // 2
+    origin_y = neck_y
+    for i in range(28):
+        a = math.radians(-75 + (i % 7) * 25)
+        d = 15 + (i // 7) * 22
+        px = origin_x + int(d * math.cos(a))
+        py = origin_y + int(d * math.sin(a))
+        r = 2 + (i % 4)
+        bright = 180 + (i % 4) * 20
+        draw.ellipse([px - r, py - r, px + r, py + r],
+                     fill=(255, bright + 20, bright, 200 - i * 4))
+    # 大星芒喷口
+    _draw_sparkle(draw, origin_x, origin_y - 6, 14, (255, 230, 100))
+    _draw_sparkle(draw, origin_x, origin_y - 6, 8, (255, 255, 240))
+
+    sparkle = (255, 235, 150)
+    _draw_sparkle(draw, body_x - 15, body_y + body_h // 3, 8, sparkle)
+    _draw_sparkle(draw, body_x + body_w + 15, body_y + body_h * 2 // 3, 7, sparkle)
+    _draw_sparkle(draw, S // 2, cork_y - 8, 5, sparkle)
 
     # 旋转
     if angle != 0:
