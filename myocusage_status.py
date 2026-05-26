@@ -18,7 +18,7 @@ from PIL import Image, ImageDraw
 from AppKit import (
     NSImage, NSFont,
     NSView, NSTextField, NSProgressIndicator,
-    NSTextAlignmentRight, NSMakeRect,
+    NSTextAlignmentRight, NSMakeRect, NSLineBreakByClipping,
     NSProgressIndicatorBarStyle,
 )
 
