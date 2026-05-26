@@ -361,7 +361,7 @@ class MyocUsageApp(rumps.App):
         self._set_icon(self._display_pct, angle)
         self._anim_idx += 1
 
-    def _start_anim(self, from_pct, to_pct, n=8):
+    def _start_anim(self, from_pct, to_pct, n=10):
         self._stop_anim()
         from_a = _bottle_angle(from_pct)
         to_a = _bottle_angle(to_pct)
@@ -370,19 +370,33 @@ class MyocUsageApp(rumps.App):
 
         frames = []
         if is_reset:
-            # 大量下降 → 重置摇晃动画
+            # 重置：先回正 → 过冲 → 摇晃站稳
             for i in range(n):
                 t = i / max(n - 1, 1)
-                decay = 1 - t * 0.8
-                wobble = 6 * decay * math.sin(t * 5 * math.pi)
-                frames.append(to_a + wobble)
+                if t < 0.4:
+                    t2 = t / 0.4
+                    ease = t2 * t2 * (3 - 2 * t2)  # smoothstep
+                    angle = from_a + (to_a - from_a) * ease * 0.8
+                    angle += (1 - t2) * 10  # 前半程附加摇晃
+                else:
+                    t2 = (t - 0.4) / 0.6
+                    decay = 1 - t2 * 0.85
+                    wobble = 7 * decay * math.sin(t2 * 5 * math.pi)
+                    angle = to_a + wobble
+                frames.append(angle)
         else:
-            # 小幅升降 → 过冲回弹
+            # 小幅升降 → 过冲回弹（最小过冲幅度 2°）
+            min_overshoot = 2.0
+            overshoot = max(abs(to_a - from_a), min_overshoot)
             for i in range(n):
                 t = i / max(n - 1, 1)
                 c1, c3 = 1.70158, 2.70158
                 ease = 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2
                 angle = from_a + (to_a - from_a) * ease
+                if t < 0.5 and overshoot > abs(to_a - from_a):
+                    t2 = t / 0.5
+                    extra = (overshoot - abs(to_a - from_a)) * math.sin(t2 * math.pi)
+                    angle += extra if to_a >= from_a else -extra
                 frames.append(angle)
 
         self._anim_frames = frames
@@ -450,14 +464,14 @@ class MyocUsageApp(rumps.App):
             self._set_icon(0, 0)
 
     def _shake_anim(self, pct):
-        """手动刷新时的轻微摇晃"""
+        """手动刷新时的摇晃"""
         self._stop_anim()
         cur_a = _bottle_angle(pct)
         frames = []
-        for i in range(8):
-            t = i / 7
-            decay = 1 - t * 0.7
-            wobble = 4 * decay * math.sin(t * 4 * math.pi)
+        for i in range(10):
+            t = i / 9
+            decay = 1 - t * 0.75
+            wobble = 5 * decay * math.sin(t * 5 * math.pi)
             frames.append(cur_a + wobble)
         self._display_pct = pct
         self._anim_frames = frames
