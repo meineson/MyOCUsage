@@ -15,7 +15,12 @@ from datetime import datetime, timedelta
 import requests
 import rumps
 from PIL import Image, ImageDraw
-from AppKit import NSImage, NSFont, NSMutableAttributedString, NSFontAttributeName, NSForegroundColorAttributeName
+from AppKit import (
+    NSImage, NSFont,
+    NSView, NSTextField, NSProgressIndicator,
+    NSTextAlignmentRight, NSMakeRect,
+    NSProgressIndicatorBarStyle,
+)
 
 import warnings
 warnings.filterwarnings("ignore", message=".*urllib3.*")
@@ -128,7 +133,6 @@ PERIOD_MAP = {
     "weeklyUsage": "weekly", "weekly": "weekly", "week": "weekly",
     "monthlyUsage": "monthly", "monthly": "monthly", "month": "monthly",
 }
-PERIOD_LABELS = {"5h": "5小时:", "weekly": "　本周:", "monthly": "　本月:"}
 
 
 def _fmt_reset(secs):
@@ -169,11 +173,6 @@ def parse_usage(data):
         log.warning(f"无法解析用量数据: {json.dumps(raw_data, ensure_ascii=False)[:300]}")
 
     return results
-
-
-def progress_bar(pct, width=10):
-    filled = max(0, min(width, round(pct / 100 * width)))
-    return "[" + "#" * filled + "-" * (width - filled) + "]"
 
 
 # ── 开机自启 ─────────────────────────────────────
@@ -346,14 +345,52 @@ def _apply_icon(app, pct, angle):
 
 # ── 菜单栏应用 ────────────────────────────────────
 
-_MONO_FONT = NSFont.fontWithName_size_("Menlo-Regular", 11)
+ROW_W = 240
+ROW_H = 22
+PROGRESS_W = 110
+PROGRESS_H = 10
 
 
-def _set_menu_text(item, text):
-    """以等宽字体设置菜单项文字"""
-    attrs = {NSFontAttributeName: _MONO_FONT}
-    astr = NSMutableAttributedString.alloc().initWithString_attributes_(text, attrs)
-    item._ns_menu_item.setAttributedTitle_(astr)
+def _make_label(text, x, w, align_right=False):
+    """创建 NSTextField 标签"""
+    f = NSTextField.alloc().initWithFrame_(NSMakeRect(x, 0, w, ROW_H))
+    f.setStringValue_(text)
+    f.setBordered_(False)
+    f.setDrawsBackground_(False)
+    f.setEditable_(False)
+    f.setSelectable_(False)
+    f.setFont_(NSFont.systemFontOfSize_(11))
+    if align_right:
+        f.setAlignment_(NSTextAlignmentRight)
+    return f
+
+
+def _make_progress():
+    """创建原生进度条"""
+    p = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(0, 4, PROGRESS_W, PROGRESS_H))
+    p.setStyle_(NSProgressIndicatorBarStyle)
+    p.setIndeterminate_(False)
+    p.setMinValue_(0)
+    p.setMaxValue_(100)
+    p.setDoubleValue_(0)
+    p.setDisplayedWhenStopped_(True)
+    return p
+
+
+def _create_row_view(title_text):
+    """创建一行菜单项: 标题 + 进度条 + 详情"""
+    view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, ROW_W, ROW_H))
+
+    title = _make_label(title_text, 8, 50)
+    bar = _make_progress()
+    bar.setFrame_(NSMakeRect(60, 6, PROGRESS_W, PROGRESS_H))
+    detail = _make_label("", 175, 60, align_right=True)
+
+    view.addSubview_(title)
+    view.addSubview_(bar)
+    view.addSubview_(detail)
+
+    return view, title, bar, detail
 
 class MyocUsageApp(rumps.App):
     def __init__(self):
@@ -371,17 +408,15 @@ class MyocUsageApp(rumps.App):
         self._anim_idx = 0
         self._manual_refreshing = False
 
-        self.menu_items = {
-            "5h": rumps.MenuItem("5小时:   --", callback=None),
-            "weekly": rumps.MenuItem("本周:   --", callback=None),
-            "monthly": rumps.MenuItem("本月:   --", callback=None),
-        }
-        _set_menu_text(self.menu_items["5h"], "5小时:   --")
-        _set_menu_text(self.menu_items["weekly"], "本周:   --")
-        _set_menu_text(self.menu_items["monthly"], "本月:   --")
-        self.menu.add(self.menu_items["5h"])
-        self.menu.add(self.menu_items["weekly"])
-        self.menu.add(self.menu_items["monthly"])
+        self._period_views = {}
+        self.menu_items = {}
+        for period, p_label in [("5h", "5小时"), ("weekly", "本周"), ("monthly", "本月")]:
+            view, title, bar, detail = _create_row_view(p_label)
+            item = rumps.MenuItem("", callback=None)
+            item._menuitem.setView_(view)
+            self.menu.add(item)
+            self.menu_items[period] = item
+            self._period_views[period] = {"title": title, "bar": bar, "detail": detail}
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("📊 用量详情", callback=self.open_usage))
         self.menu.add(rumps.separator)
@@ -486,21 +521,25 @@ class MyocUsageApp(rumps.App):
         else:
             self.title = "--"
 
-        # 菜单项（等宽字体对齐）
+        # 菜单项（原生控件渲染）
         for period in ("5h", "weekly", "monthly"):
             entry = self.usage_data.get(period)
-            item = self.menu_items[period]
-            label = PERIOD_LABELS.get(period, period)
+            v = self._period_views.get(period)
+            if not v:
+                continue
+            bar = v["bar"]
+            detail = v["detail"]
             if entry and entry["used"] is not None:
                 used = entry["used"]
                 limit = entry.get("limit")
                 reset = entry.get("resetInSec")
-                pct_str = f"{used:.0f}%".rjust(4)
-                bar = progress_bar(used, 10)
+                pct = used / limit * 100 if limit else used
+                bar.setDoubleValue_(pct)
                 reset_str = _fmt_reset(reset) if reset is not None else ""
-                _set_menu_text(item, f"{label}{pct_str}  {bar}  {reset_str}")
+                detail.setStringValue_(f"{pct:.0f}%\u2003{reset_str}")
             else:
-                _set_menu_text(item, f"{label}   --")
+                bar.setDoubleValue_(0)
+                detail.setStringValue_("--")
 
         # 瓶子图标
         candidates2 = [(e["used"], e) for e in (hourly, weekly, monthly) if e and e["used"] is not None]
