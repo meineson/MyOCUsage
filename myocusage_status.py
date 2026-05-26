@@ -517,7 +517,6 @@ class MyocUsageApp(rumps.App):
             log.error(f"刷新失败: {e}")
 
     def manual_refresh(self, _):
-        self.title = "..."
         self._manual_refreshing = True
         self.refresh_data(None)
         self._manual_refreshing = False
