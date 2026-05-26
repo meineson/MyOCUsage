@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import requests
 import rumps
 from PIL import Image, ImageDraw
+from AppKit import NSImage
 
 import warnings
 warnings.filterwarnings("ignore", message=".*urllib3.*")
@@ -195,54 +196,107 @@ def _bottle_angle(pct):
 
 
 def _render_bottle(usage_pct, angle=0):
-    """在 88x88 画布绘制瓶子 → 缩放到 44x44 → 保存到 ICON_FILE"""
-    S = 88
+    """简洁风格瓶子图标 — 512x512 绘制 → 44x44 保存"""
+    S = 512
+    cx = S // 2
+
+    # 比例: 全身高 10 份, 瓶身宽 5 份
+    total_h = S * 0.82
+    body_w = int(total_h * 0.50)
+    cap_h = int(total_h * 0.10)
+    neck_h = int(total_h * 0.12)
+    body_h = total_h - cap_h - neck_h
+    body_w = int(body_w * 1.0 if body_w % 2 == 0 else body_w + 1)
+
+    cap_y = int(S * 0.04)
+    neck_y = cap_y + cap_h
+    body_y = int(neck_y + neck_h * 0.85)
+
+    body_x = (S - body_w) // 2
+    neck_w = int(body_w * 0.30)
+    neck_x = (S - neck_w) // 2
+    cap_w = neck_w + int(neck_w * 0.20)
+    cap_x = (S - cap_w) // 2
+
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    cx = S // 2
-    glass = (160, 160, 160)
+    glass = (180, 180, 180)
 
-    nw, nh = S // 5, S // 4
-    nx, ny = cx - nw // 2, S // 16 + 2
-    draw.rounded_rectangle([nx, ny, nx + nw, ny + nh], radius=3, outline=glass, width=3)
+    # 瓶盖 — 简洁
+    draw.rounded_rectangle([cap_x, cap_y, cap_x + cap_w, cap_y + cap_h],
+                           radius=5, fill=(55, 125, 200), outline=(35, 95, 170))
 
-    bw, bh = S // 2, S // 2 + 4
-    bx, by = cx - bw // 2, ny + nh - 3
-    body_box = (bx, by, bx + bw, by + bh)
-    draw.rounded_rectangle(body_box, radius=8, outline=glass, width=3)
+    # 瓶颈
+    draw.rectangle([neck_x, neck_y, neck_x + neck_w, body_y],
+                   fill=(240, 240, 240), outline=glass, width=3)
 
-    liquid_h = int(bh * (100 - usage_pct) / 100)
+    # 瓶身 — 圆角矩形
+    body_r = 24
+    bb = (body_x, body_y, body_x + body_w, body_y + body_h)
+    draw.rounded_rectangle(bb, radius=body_r, outline=glass, width=4)
+
+    # 瓶身填充 (透明玻璃)
+    bmask = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(bmask).rounded_rectangle(bb, radius=body_r, fill=255)
+    bg = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    ImageDraw.Draw(bg).rounded_rectangle(bb, radius=body_r, fill=(240, 240, 240))
+    img = Image.alpha_composite(img, Image.composite(bg, Image.new("RGBA", (S, S), (0, 0, 0, 0)), bmask))
+
+    # 瓶内液体
+    liquid_h = int(body_h * (100 - usage_pct) / 100)
     if liquid_h > 0:
         color = _liquid_color(usage_pct)
         mask = Image.new("L", (S, S), 0)
-        ImageDraw.Draw(mask).rounded_rectangle(body_box, radius=8, fill=255)
-        ImageDraw.Draw(mask).rectangle([bx, by + bh - liquid_h, bx + bw, by + bh], fill=255)
+        md = ImageDraw.Draw(mask)
+        md.rounded_rectangle(bb, radius=body_r, fill=255)
+        md.rectangle([body_x, body_y + body_h - liquid_h, body_x + body_w, body_y + body_h], fill=255)
 
         layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
         ImageDraw.Draw(layer).rounded_rectangle(
-            [bx + 3, by + bh - liquid_h, bx + bw - 3, by + bh - 3],
-            radius=7, fill=color,
-        )
+            [body_x + 6, body_y + body_h - liquid_h, body_x + body_w - 6, body_y + body_h - 4],
+            radius=20, fill=color)
         img = Image.alpha_composite(
             img,
             Image.composite(layer, Image.new("RGBA", (S, S), (0, 0, 0, 0)), mask),
         )
 
+    # 高光
     draw = ImageDraw.Draw(img)
-    hx, hy = bx + 8, by + 6
-    draw.rectangle([hx, hy, hx + 7, hy + bh - 12], fill=(255, 255, 255, 35))
+    hx = body_x + body_w * 0.12
+    hw = body_w * 0.10
+    draw.rectangle([int(hx), body_y + 20, int(hx + hw), body_y + body_h - 20],
+                   fill=(255, 255, 255, 45))
 
+    # 瓶底
+    base_h = int(body_h * 0.04)
+    draw.rounded_rectangle(
+        [body_x + 6, body_y + body_h - base_h, body_x + body_w - 6, body_y + body_h],
+        radius=4, fill=(200, 200, 200), outline=glass)
+
+    # 旋转
     if angle != 0:
         img = img.rotate(angle, expand=True, fillcolor=(0, 0, 0, 0), resample=Image.BICUBIC)
         w, h = img.size
         side = min(w, h)
-        left = (w - side) // 2
-        top = (h - side) // 2
-        img = img.crop((left, top, left + side, top + side))
+        img = img.crop(((w - side) // 2, (h - side) // 2, (w + side) // 2, (h + side) // 2))
 
     img = img.resize((44, 44), Image.LANCZOS)
     img.save(ICON_FILE, "PNG")
+
+
+def _apply_icon(app, pct, angle):
+    _render_bottle(pct, angle)
+    app.icon = ICON_FILE
+    # 强制 NSImage 尺寸为 22pt（正确菜单栏大小）
+    try:
+        btn = app._ns_status_bar_button
+        if btn:
+            ns_img = btn.image
+            if ns_img:
+                ns_img.setSize_((22, 22))
+    except AttributeError:
+        pass
 
 
 def _apply_icon(app, pct, angle):
