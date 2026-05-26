@@ -500,7 +500,7 @@ class MyocUsageApp(rumps.App):
                 reset_str = _fmt_reset(reset) if reset is not None else ""
                 _set_menu_text(item, f"{label}{pct_str}  {bar}  {reset_str}")
             else:
-                _set_menu_text(item, f"{label}  --")
+                _set_menu_text(item, f"{label}   --")
 
         # 瓶子图标
         candidates2 = [(e["used"], e) for e in (hourly, weekly, monthly) if e and e["used"] is not None]
