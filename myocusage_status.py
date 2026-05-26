@@ -193,8 +193,17 @@ def _install_launchd():
     os.makedirs(os.path.dirname(PLIST_PATH), exist_ok=True)
     with open(PLIST_PATH, "wb") as f:
         plistlib.dump(plist, f)
-    subprocess.run(["launchctl", "load", PLIST_PATH], capture_output=True)
-    log.info("开机自启已开启")
+    log.info("开机自启已开启（下次登录生效）")
+
+
+def _uninstall_launchd():
+    if os.path.exists(PLIST_PATH):
+        os.unlink(PLIST_PATH)
+        log.info("开机自启已关闭")
+
+
+def _autostart_enabled():
+    return os.path.exists(PLIST_PATH)
 
 
 def _uninstall_launchd():
