@@ -45,7 +45,7 @@ cp config.json.sample config.json
 |------|----------|
 | `cookies` | 浏览器打开 [opencode.ai](https://opencode.ai) 并登录，按 `F12` → **Network** → 过滤 `_server` → 点击任意请求 → **Request Headers** → 复制 `Cookie` 字段的完整值（格式如 `oc_locale=zh; auth=Fe26.2**...**`） |
 | `workspace_id` | 访问 `https://opencode.ai/workspace/{你的工作区ID}/usage`，从地址栏复制中间那串 ID（格式如 `wrk_xxx...`） |
-| `server_id` | 同上页面，F12 → Network → `_server` 请求 → **Request Headers** → 复制 `x-server-id` |
+| `server_id` | 访问 `https://opencode.ai/workspace/{你的工作区ID}/go`，F12 → Network → 过滤 `_server` → 任意请求 → **Request Headers** → 复制 `x-server-id`（当前为 `c7389bd0e731f80f49593e5ee53835475f4e28594dd6bd83eb229bab753498cd`，可能随部署变更） |
 | `server_instance` | 同上，复制 `x-server-instance`（通常为 `server-fn:3`） |
 | `plan_monthly_limit` | 可选。如果菜单栏只显示百分比不显示数值，可在此填入你的月计划金额上限（美元），用于计算进度条 |
 

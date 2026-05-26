@@ -7,8 +7,8 @@
   "workspace_id": "wrk_xxxxxxxxxxxxxxxxxxxxx",
   "_workspace说明": "访问 https://opencode.ai/workspace/{这里就是你工作区ID}/go ，从地址栏复制",
 
-  "server_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  "_server说明": "与 workspace_id 同页面，F12 → Network → _server 请求 → Request Headers 中的 x-server-id",
+  "server_id": "c7389bd0e731f80f49593e5ee53835475f4e28594dd6bd83eb229bab753498cd",
+  "_server说明": "访问 https://opencode.ai/workspace/{workspace_id}/go → F12 → Network → _server 请求 → x-server-id（可能随部署变更）",
 
   "server_instance": "server-fn:3",
   "_server_instance说明": "同上页面，F12 → Network → _server 请求 → x-server-instance",
