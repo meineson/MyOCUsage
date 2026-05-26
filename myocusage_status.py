@@ -346,9 +346,10 @@ class MyocUsageApp(rumps.App):
     def _stop_anim(self):
         if self._anim_timer:
             self._anim_timer.stop()
-            self._anim_timer = None
+        self._anim_timer = None
         self._anim_frames = []
         self._anim_idx = 0
+        self._manual_refreshing = False
 
     def _anim_tick(self, _):
         if self._anim_idx >= len(self._anim_frames):
@@ -391,7 +392,7 @@ class MyocUsageApp(rumps.App):
 
     # ── 显示更新 ──
 
-    def _update_display(self):
+    def _update_display(self, force_shake=False):
         monthly = self.usage_data.get("monthly")
         weekly = self.usage_data.get("weekly")
         hourly = self.usage_data.get("5h")
@@ -437,7 +438,9 @@ class MyocUsageApp(rumps.App):
             limit = best.get("limit")
             new_pct = used / limit * 100 if limit else used
 
-            if abs(new_pct - self._display_pct) > 0.5:
+            if force_shake or self._manual_refreshing:
+                self._shake_anim(new_pct)
+            elif abs(new_pct - self._display_pct) > 0.5:
                 old_pct = self._display_pct
                 self._display_pct = new_pct
                 self._start_anim(old_pct, new_pct)
@@ -445,6 +448,22 @@ class MyocUsageApp(rumps.App):
                 self._set_icon(new_pct, _bottle_angle(new_pct))
         else:
             self._set_icon(0, 0)
+
+    def _shake_anim(self, pct):
+        """手动刷新时的轻微摇晃"""
+        self._stop_anim()
+        cur_a = _bottle_angle(pct)
+        frames = []
+        for i in range(8):
+            t = i / 7
+            decay = 1 - t * 0.7
+            wobble = 4 * decay * math.sin(t * 4 * math.pi)
+            frames.append(cur_a + wobble)
+        self._display_pct = pct
+        self._anim_frames = frames
+        self._anim_idx = 0
+        self._anim_timer = rumps.Timer(self._anim_tick, 0.04)
+        self._anim_timer.start()
 
     def refresh_data(self, _):
         try:
@@ -485,7 +504,9 @@ class MyocUsageApp(rumps.App):
 
     def manual_refresh(self, _):
         self.title = "..."
+        self._manual_refreshing = True
         self.refresh_data(None)
+        self._manual_refreshing = False
 
     def quit_app(self, _):
         self._stop_anim()
