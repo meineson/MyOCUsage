@@ -2,7 +2,7 @@
 
 macOS 菜单栏应用，在状态栏实时显示 OpenCode 的 5 小时 / 本周 / 本月用量。
 
-![screenshot](screenshot.png)
+![菜单栏图标](snap2.png) ![下拉菜单](snap1.png)
 
 ## 功能
 

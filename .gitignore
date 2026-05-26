@@ -4,4 +4,4 @@ __pycache__/
 *.log
 myocusage_latest.json
 myocusage_response.txt
-.screenshot.png
+*.screenshot.png
