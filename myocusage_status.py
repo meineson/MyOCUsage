@@ -362,6 +362,7 @@ def _make_label(text, x, w, align_right=False, bold=False):
     f.setFont_(NSFont.boldSystemFontOfSize_(11) if bold else NSFont.systemFontOfSize_(11))
     if align_right:
         f.setAlignment_(NSTextAlignmentRight)
+    f.setLineBreakMode_(NSLineBreakByClipping)
     return f
 
 
@@ -384,8 +385,8 @@ def _create_row_view(title_text):
     title = _make_label(title_text, 8, 45)
     bar = _make_progress()
     bar.setFrame_(NSMakeRect(54, 6, PROGRESS_W, PROGRESS_H))
-    pct_label = _make_label("", 148, 32, align_right=True, bold=True)
-    reset_label = _make_label("", 185, 70, align_right=True)
+    pct_label = _make_label("", 143, 28, align_right=True, bold=True)
+    reset_label = _make_label("", 174, 82, align_right=True)
 
     view.addSubview_(title)
     view.addSubview_(bar)
@@ -396,7 +397,7 @@ def _create_row_view(title_text):
 
 class MyocUsageApp(rumps.App):
     def __init__(self):
-        super().__init__("OC", title="...", quit_button=rumps.MenuItem("🚪 退出", callback=self.quit_app))
+        super().__init__("", title="", quit_button=rumps.MenuItem("🚪 退出", callback=self.quit_app))
         self.config = load_config()
         self.usage_data = {}
         self.last_error = None
@@ -530,7 +531,6 @@ class MyocUsageApp(rumps.App):
             if not v:
                 continue
             bar = v["bar"]
-            detail = v["detail"]
             if entry and entry["used"] is not None:
                 used = entry["used"]
                 limit = entry.get("limit")
