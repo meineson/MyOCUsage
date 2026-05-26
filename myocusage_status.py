@@ -345,13 +345,13 @@ def _apply_icon(app, pct, angle):
 
 # ── 菜单栏应用 ────────────────────────────────────
 
-ROW_W = 240
+ROW_W = 260
 ROW_H = 22
 PROGRESS_W = 85
 PROGRESS_H = 10
 
 
-def _make_label(text, x, w, align_right=False):
+def _make_label(text, x, w, align_right=False, bold=False):
     """创建 NSTextField 标签"""
     f = NSTextField.alloc().initWithFrame_(NSMakeRect(x, 0, w, ROW_H))
     f.setStringValue_(text)
@@ -359,7 +359,7 @@ def _make_label(text, x, w, align_right=False):
     f.setDrawsBackground_(False)
     f.setEditable_(False)
     f.setSelectable_(False)
-    f.setFont_(NSFont.systemFontOfSize_(11))
+    f.setFont_(NSFont.boldSystemFontOfSize_(11) if bold else NSFont.systemFontOfSize_(11))
     if align_right:
         f.setAlignment_(NSTextAlignmentRight)
     return f
@@ -378,19 +378,21 @@ def _make_progress():
 
 
 def _create_row_view(title_text):
-    """创建一行菜单项: 标题 + 进度条 + 详情"""
+    """创建一行菜单项: 标题 + 进度条 + 百分比 + 重置时间"""
     view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, ROW_W, ROW_H))
 
-    title = _make_label(title_text, 8, 50)
+    title = _make_label(title_text, 8, 45)
     bar = _make_progress()
-    bar.setFrame_(NSMakeRect(58, 6, PROGRESS_W, PROGRESS_H))
-    detail = _make_label("", 148, 85, align_right=True)
+    bar.setFrame_(NSMakeRect(54, 6, PROGRESS_W, PROGRESS_H))
+    pct_label = _make_label("", 148, 32, align_right=True, bold=True)
+    reset_label = _make_label("", 185, 70, align_right=True)
 
     view.addSubview_(title)
     view.addSubview_(bar)
-    view.addSubview_(detail)
+    view.addSubview_(pct_label)
+    view.addSubview_(reset_label)
 
-    return view, title, bar, detail
+    return view, title, bar, pct_label, reset_label
 
 class MyocUsageApp(rumps.App):
     def __init__(self):
@@ -411,12 +413,12 @@ class MyocUsageApp(rumps.App):
         self._period_views = {}
         self.menu_items = {}
         for period, p_label in [("5h", "5小时"), ("weekly", "本周"), ("monthly", "本月")]:
-            view, title, bar, detail = _create_row_view(p_label)
+            view, title, bar, pct_label, reset_label = _create_row_view(p_label)
             item = rumps.MenuItem("", callback=None)
             item._menuitem.setView_(view)
             self.menu.add(item)
             self.menu_items[period] = item
-            self._period_views[period] = {"title": title, "bar": bar, "detail": detail}
+            self._period_views[period] = {"title": title, "bar": bar, "pct": pct_label, "reset": reset_label}
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("📊 用量详情", callback=self.open_usage))
         self.menu.add(rumps.separator)
@@ -534,12 +536,13 @@ class MyocUsageApp(rumps.App):
                 limit = entry.get("limit")
                 reset = entry.get("resetInSec")
                 pct = used / limit * 100 if limit else used
-                bar.setDoubleValue_(pct)
-                reset_str = _fmt_reset(reset) if reset is not None else ""
-                detail.setStringValue_(f"{pct:.0f}%  {reset_str}")
+                v["bar"].setDoubleValue_(pct)
+                v["pct"].setStringValue_(f"{pct:.0f}%")
+                v["reset"].setStringValue_(_fmt_reset(reset) if reset is not None else "")
             else:
-                bar.setDoubleValue_(0)
-                detail.setStringValue_("--")
+                v["bar"].setDoubleValue_(0)
+                v["pct"].setStringValue_("--")
+                v["reset"].setStringValue_("")
 
         # 瓶子图标
         candidates2 = [(e["used"], e) for e in (hourly, weekly, monthly) if e and e["used"] is not None]
