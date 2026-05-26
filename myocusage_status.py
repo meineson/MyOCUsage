@@ -5,19 +5,21 @@ import json
 import os
 import re
 import sys
+import math
 import urllib.parse
 import logging
 from datetime import datetime, timedelta
 
 import requests
 import rumps
+from PIL import Image, ImageDraw
 
 import warnings
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
-ICON_PATH = os.path.join(SCRIPT_DIR, "bottle_icon_small.png")
+ICON_FILE = os.path.expanduser("~/.myocusage_icon.png")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,16 +41,11 @@ class AuthExpiredError(Exception):
 # ── Convex JS 响应 → JSON ──────────────────────────
 
 def _js_to_json(js_str):
-    """将 Convex 返回的 JS 表达式转换为 JSON"""
     s = js_str
-    # !0 → true, !1 → false
     s = re.sub(r'!0(?=[,}:])', 'true', s)
     s = re.sub(r'!1(?=[,}:])', 'false', s)
-    # 给属性名加引号: word: → "word":
     s = re.sub(r'([a-zA-Z_$]\w*)(?=\s*:)', r'"\1"', s)
-    # 去掉 $R[N]= 引用定义
     s = re.sub(r'\$R\[\d+\]=', '', s)
-    # 去掉残留的裸 $R[N]
     s = re.sub(r'\$R\[\d+\]', 'null', s)
     return json.loads(s)
 
@@ -57,11 +54,9 @@ def _parse_convex_response(raw):
     if "location" in raw and ("/auth/authorize" in raw or "/login" in raw):
         raise AuthExpiredError("认证已过期，请更新 config.json 中 cookies 字段")
 
-    # 提取 $R[0]= 之后的 JS 表达式
     m = re.search(r'\$R\[0\]=(.+)', raw)
     if m:
         val = m.group(1)
-        # 去掉末尾的 )($R[...]) 和可能的末尾括号
         val = re.sub(r'\)\(.*$', '', val)
         val = val.rstrip(')')
         try:
@@ -69,7 +64,6 @@ def _parse_convex_response(raw):
         except Exception as e:
             log.warning(f"JS→JSON 转换失败: {e}, raw={val[:200]}")
 
-    # 兜底：尝试直接解析 JSON
     for m in re.finditer(r'(\{.*\}|\[.*\])', raw):
         try:
             return json.loads(m.group(0))
@@ -121,10 +115,10 @@ def make_api_request(config):
     except json.JSONDecodeError:
         with open(os.path.expanduser("~/.myocusage_response.txt"), "w") as f:
             f.write(raw)
-        raise ValueError(f"非 JSON 响应，已保存到 ~/.myocusage_response.txt")
+        raise ValueError("非 JSON 响应，已保存到 ~/.myocusage_response.txt")
 
 
-# ── 从 API 数据提取用量信息 ────────────────────────
+# ── 用量数据解析 ─────────────────────────────────
 
 PERIOD_MAP = {
     "rollingUsage": "5h", "hourly": "5h", "5h": "5h",
@@ -135,10 +129,6 @@ PERIOD_LABELS = {"5h": "5小时", "weekly": "本周", "monthly": "本月"}
 
 
 def _fmt_reset(secs):
-    """秒数 → 友好倒计时格式
-    ≤24h: HH:MM:SS
-    >24h: MM-DD HH:MM（具体重置日期）
-    """
     if secs < 86400:
         h, m, s = secs // 3600, (secs % 3600) // 60, secs % 60
         return f"{h:02d}:{m:02d}:{s:02d}"
@@ -147,13 +137,6 @@ def _fmt_reset(secs):
 
 
 def parse_usage(data):
-    """
-    返回 {
-      "5h":     {"used": N, "limit": N|None, "resetInSec": N},
-      "weekly":  {"used": N, "limit": N|None, "resetInSec": N},
-      "monthly": {"used": N, "limit": N|None, "resetInSec": N},
-    }
-    """
     raw_data = data
     if isinstance(data, dict) and "value" in data:
         data = data["value"]
@@ -163,7 +146,6 @@ def parse_usage(data):
     if not isinstance(data, dict):
         return results
 
-    # 模式1: 直接包含 rollingUsage / weeklyUsage / monthlyUsage
     for src_key, period in PERIOD_MAP.items():
         entry = data.get(src_key)
         if isinstance(entry, dict):
@@ -173,16 +155,6 @@ def parse_usage(data):
             if used is not None:
                 results[period] = {"used": used, "limit": limit, "resetInSec": reset}
 
-    # 用法: 如果 usagePercent 是 0-100 的百分比，limit 固定为 100
-    for period, entry in list(results.items()):
-        if entry["limit"] is None and entry["used"] is not None:
-            # 如果 used 像是百分比 (0-100 的整数)
-            v = entry["used"]
-            if isinstance(v, (int, float)) and v <= 100 and v >= 0:
-                # 暂时不自动推断，以免误判
-                pass
-
-    # 兜底：用 plan_monthly_limit
     config = load_config()
     fallback = config.get("plan_monthly_limit")
     if fallback:
@@ -197,23 +169,109 @@ def parse_usage(data):
 
 
 def progress_bar(pct, width=10):
-    """ASCII 进度条 [###------]"""
     filled = max(0, min(width, round(pct / 100 * width)))
     return "[" + "#" * filled + "-" * (width - filled) + "]"
 
 
-# ── 状态栏应用 ─────────────────────────────────────
+# ── 动态瓶子图标 ─────────────────────────────────
+
+_LIQUID_COLORS = [
+    (30,  (50, 180, 60)),     # 绿
+    (60,  (245, 166, 35)),    # 橙
+    (80,  (245, 124, 0)),     # 深橙
+    (100, (229, 57, 53)),     # 红
+]
+
+
+def _liquid_color(pct):
+    for threshold, color in _LIQUID_COLORS:
+        if pct <= threshold:
+            return color
+    return _LIQUID_COLORS[-1][1]
+
+
+def _bottle_angle(pct):
+    """用量 → 倾斜角度。0%=0°, 100%=20°"""
+    return pct / 100 * 20
+
+
+def _generate_bottle(usage_pct, angle=0):
+    size = 22
+    canvas = 28
+    img = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    cx, cy = canvas // 2, canvas // 2
+    off_y = 1
+
+    # Neck
+    nw, nh = 4, 5
+    nx, ny = cx - nw // 2, off_y
+    draw.rectangle([nx, ny, nx + nw, ny + nh], outline=(160, 160, 160), width=1)
+
+    # Body
+    bw, bh = 14, 15
+    bx, by = cx - bw // 2, ny + nh - 1
+    r = 2
+    body_box = (bx, by, bx + bw, by + bh)
+    glass = (160, 160, 160)
+
+    # Body outline
+    draw.rounded_rectangle(body_box, radius=r, outline=glass, width=1)
+
+    # Liquid — clipped to body shape
+    liquid_h = int(bh * (100 - usage_pct) / 100)
+    if liquid_h > 0:
+        color = _liquid_color(usage_pct)
+        # Body mask
+        mask = Image.new("L", (canvas, canvas), 0)
+        ImageDraw.Draw(mask).rounded_rectangle(body_box, radius=r, fill=255)
+        # Liquid area from bottom
+        ltop = by + bh - liquid_h
+        ImageDraw.Draw(mask).rectangle([bx, ltop, bx + bw, by + bh], fill=255)
+        # Fill on a separate layer
+        layer = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+        ImageDraw.Draw(layer).rounded_rectangle(
+            [bx + 1, ltop, bx + bw - 1, by + bh - 1],
+            radius=r - 1, fill=color,
+        )
+        img = Image.alpha_composite(img, Image.composite(layer, Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0)), mask))
+
+    # Glass highlight
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([bx + 3, by + 3, bx + 5, by + bh - 3], fill=(255, 255, 255, 40))
+
+    # Rotate
+    if angle != 0:
+        img = img.rotate(angle, expand=True, fillcolor=(0, 0, 0, 0), resample=Image.BICUBIC)
+        w, h = img.size
+        left = (w - size) // 2
+        top = (h - size) // 2
+        img = img.crop((left, top, left + size, top + size))
+    else:
+        img = img.crop(((canvas - size) // 2, (canvas - size) // 2,
+                        (canvas + size) // 2, (canvas + size) // 2))
+
+    img.save(ICON_FILE, "PNG")
+    return ICON_FILE
+
+
+# ── 菜单栏应用 ────────────────────────────────────
 
 class MyocUsageApp(rumps.App):
     def __init__(self):
-        icon_path = ICON_PATH if os.path.exists(ICON_PATH) else None
-        super().__init__("OC", icon=icon_path, title="...",
-                         quit_button=rumps.MenuItem("🚪 退出", callback=self.quit_app))
+        super().__init__("OC", title="...", quit_button=rumps.MenuItem("🚪 退出", callback=self.quit_app))
         self.config = load_config()
         self.usage_data = {}
         self.last_error = None
         self.last_raw_data = None
         self.refresh_timer = None
+
+        self._prev_display_pct = 0
+        self._display_pct = 0
+        self._anim_timer = None
+        self._anim_frames = []
+        self._anim_idx = 0
 
         self.menu_items = {
             "5h": rumps.MenuItem("5小时: --", callback=None),
@@ -232,14 +290,68 @@ class MyocUsageApp(rumps.App):
         self.refresh_timer.start()
         log.info("MyocUsage 已启动")
 
+    # ── 图标动画 ──
+
+    def _set_icon(self, pct, angle):
+        _generate_bottle(pct, angle)
+        self.icon = None  # force reload
+        self.icon = ICON_FILE
+
+    def _stop_anim(self):
+        if self._anim_timer:
+            self._anim_timer.stop()
+            self._anim_timer = None
+        self._anim_frames = []
+        self._anim_idx = 0
+
+    def _anim_tick(self, _):
+        if self._anim_idx >= len(self._anim_frames):
+            self._stop_anim()
+            # Final frame — stable icon
+            self._set_icon(self._display_pct, _bottle_angle(self._display_pct))
+            return
+        angle = self._anim_frames[self._anim_idx]
+        self._set_icon(self._display_pct, angle)
+        self._anim_idx += 1
+
+    def _start_anim(self, from_pct, to_pct, n=8):
+        self._stop_anim()
+        from_a = _bottle_angle(from_pct)
+        to_a = _bottle_angle(to_pct)
+        diff_pct = abs(to_pct - from_pct)
+        is_reset = diff_pct >= 30
+
+        frames = []
+        if is_reset:
+            # 大量下降 → 重置摇晃动画
+            for i in range(n):
+                t = i / max(n - 1, 1)
+                decay = 1 - t * 0.8
+                wobble = 6 * decay * math.sin(t * 5 * math.pi)
+                frames.append(to_a + wobble)
+        else:
+            # 小幅升降 → 过冲回弹
+            for i in range(n):
+                t = i / max(n - 1, 1)
+                c1, c3 = 1.70158, 2.70158
+                ease = 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2
+                angle = from_a + (to_a - from_a) * ease
+                frames.append(angle)
+
+        self._anim_frames = frames
+        self._anim_idx = 0
+        self._anim_timer = rumps.Timer(self._anim_tick, 0.04)
+        self._anim_timer.start()
+
+    # ── 显示更新 ──
+
     def _update_display(self):
         monthly = self.usage_data.get("monthly")
         weekly = self.usage_data.get("weekly")
         hourly = self.usage_data.get("5h")
 
-        # 显示用量值最大的那个时段
         candidates = []
-        for entry, key in [(hourly, "5h"), (weekly, "weekly"), (monthly, "monthly")]:
+        for entry in (hourly, weekly, monthly):
             if entry and entry["used"] is not None:
                 candidates.append((entry["used"], entry))
         if candidates:
@@ -250,10 +362,12 @@ class MyocUsageApp(rumps.App):
                 pct = used / limit * 100
                 self.title = f"{pct:.0f}%"
             else:
-                self.title = f"{used:.0f}%"
+                pct = used
+                self.title = f"{pct:.0f}%"
         else:
             self.title = "--"
 
+        # 菜单项
         for period in ("5h", "weekly", "monthly"):
             entry = self.usage_data.get(period)
             item = self.menu_items[period]
@@ -268,6 +382,23 @@ class MyocUsageApp(rumps.App):
                 item.title = f"{label}:  {pct_str}  {bar}  {reset_str}"
             else:
                 item.title = f"{label}:  --"
+
+        # 瓶子图标
+        candidates2 = [(e["used"], e) for e in (hourly, weekly, monthly) if e and e["used"] is not None]
+        if candidates2:
+            _, best = max(candidates2, key=lambda x: x[0])
+            used = best["used"]
+            limit = best.get("limit")
+            new_pct = used / limit * 100 if limit else used
+
+            if abs(new_pct - self._display_pct) > 0.5:
+                old_pct = self._display_pct
+                self._display_pct = new_pct
+                self._start_anim(old_pct, new_pct)
+            else:
+                self._set_icon(new_pct, _bottle_angle(new_pct))
+        else:
+            self._set_icon(0, 0)
 
     def refresh_data(self, _):
         try:
@@ -305,14 +436,17 @@ class MyocUsageApp(rumps.App):
             self.title = "ERR"
             self.last_error = str(e)
             log.error(f"刷新失败: {e}")
-    
+
     def manual_refresh(self, _):
         self.title = "..."
         self.refresh_data(None)
 
     def quit_app(self, _):
+        self._stop_anim()
         if self.refresh_timer:
             self.refresh_timer.stop()
+        if os.path.exists(ICON_FILE):
+            os.unlink(ICON_FILE)
         rumps.quit_application()
 
 
@@ -321,7 +455,6 @@ if __name__ == "__main__":
         log.error(f"配置文件未找到: {CONFIG_PATH}")
         sys.exit(1)
 
-    # 首次启动 → 创建守护进程后退出终端
     if "--daemon" not in sys.argv:
         import subprocess
         subprocess.Popen(
