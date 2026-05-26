@@ -288,7 +288,6 @@ def _render_bottle(usage_pct, angle=0):
 def _apply_icon(app, pct, angle):
     _render_bottle(pct, angle)
     app.icon = ICON_FILE
-    # 强制 NSImage 尺寸为 22pt（正确菜单栏大小）
     try:
         btn = app._ns_status_bar_button
         if btn:
@@ -297,11 +296,6 @@ def _apply_icon(app, pct, angle):
                 ns_img.setSize_((22, 22))
     except AttributeError:
         pass
-
-
-def _apply_icon(app, pct, angle):
-    _render_bottle(pct, angle)
-    app.icon = ICON_FILE
 
 
 # ── 菜单栏应用 ────────────────────────────────────
@@ -320,6 +314,7 @@ class MyocUsageApp(rumps.App):
         self._anim_timer = None
         self._anim_frames = []
         self._anim_idx = 0
+        self._manual_refreshing = False
 
         self.menu_items = {
             "5h": rumps.MenuItem("5小时: --", callback=None),
@@ -527,6 +522,9 @@ class MyocUsageApp(rumps.App):
             self.refresh_timer.stop()
         if os.path.exists(ICON_FILE):
             os.unlink(ICON_FILE)
+        PID_FILE = os.path.expanduser("~/.myocusage.pid")
+        if os.path.exists(PID_FILE):
+            os.unlink(PID_FILE)
         rumps.quit_application()
 
 
@@ -536,13 +534,26 @@ if __name__ == "__main__":
         sys.exit(1)
 
     if "--daemon" not in sys.argv:
+        # 防止重复启动
+        PID_FILE = os.path.expanduser("~/.myocusage.pid")
+        if os.path.exists(PID_FILE):
+            with open(PID_FILE) as f:
+                old_pid = int(f.read().strip())
+            try:
+                os.kill(old_pid, 0)
+                print(f"[!] MyOCUsage 已在运行 (PID {old_pid})")
+                sys.exit(0)
+            except (OSError, ValueError):
+                os.unlink(PID_FILE)
         import subprocess
-        subprocess.Popen(
+        proc = subprocess.Popen(
             [sys.executable, os.path.abspath(__file__), "--daemon"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
+        with open(PID_FILE, "w") as f:
+            f.write(str(proc.pid))
         log.info("守护进程已启动")
         sys.exit(0)
 
