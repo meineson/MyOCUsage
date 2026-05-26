@@ -418,7 +418,7 @@ def _create_row_view(title_text):
 
 class MyocUsageApp(rumps.App):
     def __init__(self):
-        super().__init__("", title="", quit_button=rumps.MenuItem("🚪 退出", callback=self.quit_app))
+        super().__init__("", title="", quit_button=rumps.MenuItem("■ 退出", callback=self.quit_app))
         self.config = load_config()
         self.usage_data = {}
         self.last_error = None
@@ -442,6 +442,7 @@ class MyocUsageApp(rumps.App):
             self.menu_items[period] = item
             self._period_views[period] = {"title": title, "bar": bar, "pct": pct_label, "reset": reset_label}
         self.menu.add(rumps.separator)
+        self.menu.add(rumps.MenuItem("⬇ 软件更新", callback=self.open_update))
         self.menu.add(rumps.MenuItem("📊 用量详情", callback=self.open_usage))
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("🔄 手动刷新", callback=self.manual_refresh))
@@ -641,6 +642,9 @@ class MyocUsageApp(rumps.App):
         self._manual_refreshing = True
         self.refresh_data(None)
         self._manual_refreshing = False
+
+    def open_update(self, _):
+        subprocess.Popen(["open", "https://github.com/meineson/MyOCUsage"])
 
     def open_usage(self, _):
         wid = self.config.get("workspace_id", "")
