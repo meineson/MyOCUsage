@@ -128,7 +128,7 @@ PERIOD_MAP = {
     "weeklyUsage": "weekly", "weekly": "weekly", "week": "weekly",
     "monthlyUsage": "monthly", "monthly": "monthly", "month": "monthly",
 }
-PERIOD_LABELS = {"5h": "5小时", "weekly": "本周", "monthly": "本月"}
+PERIOD_LABELS = {"5h": "5小时:", "weekly": "　本周:", "monthly": "　本月:"}
 
 
 def _fmt_reset(secs):
@@ -364,8 +364,8 @@ class MyocUsageApp(rumps.App):
 
         self.menu_items = {
             "5h": rumps.MenuItem("5小时: --", callback=None),
-            "weekly": rumps.MenuItem("本周: --", callback=None),
-            "monthly": rumps.MenuItem("本月: --", callback=None),
+            "weekly": rumps.MenuItem("　本周: --", callback=None),
+            "monthly": rumps.MenuItem("　本月: --", callback=None),
         }
         self.menu.add(self.menu_items["5h"])
         self.menu.add(self.menu_items["weekly"])
