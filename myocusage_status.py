@@ -6,6 +6,8 @@ import os
 import re
 import sys
 import math
+import plistlib
+import subprocess
 import urllib.parse
 import logging
 from datetime import datetime, timedelta
@@ -174,6 +176,41 @@ def progress_bar(pct, width=10):
     return "[" + "#" * filled + "-" * (width - filled) + "]"
 
 
+# ── 开机自启 ─────────────────────────────────────
+
+PLIST_PATH = os.path.expanduser("~/Library/LaunchAgents/com.myocusage.plist")
+
+
+def _install_launchd():
+    python = sys.executable
+    script = os.path.abspath(__file__)
+    plist = {
+        "Label": "com.myocusage",
+        "ProgramArguments": [python, script, "--daemon"],
+        "RunAtLoad": True,
+        "KeepAlive": False,
+    }
+    os.makedirs(os.path.dirname(PLIST_PATH), exist_ok=True)
+    with open(PLIST_PATH, "wb") as f:
+        plistlib.dump(plist, f)
+    subprocess.run(["launchctl", "load", PLIST_PATH], capture_output=True)
+    log.info("开机自启已开启")
+
+
+def _uninstall_launchd():
+    if os.path.exists(PLIST_PATH):
+        subprocess.run(["launchctl", "unload", PLIST_PATH], capture_output=True)
+        os.unlink(PLIST_PATH)
+        log.info("开机自启已关闭")
+
+
+def _autostart_enabled():
+    if not os.path.exists(PLIST_PATH):
+        return False
+    r = subprocess.run(["launchctl", "list", "com.myocusage"], capture_output=True, text=True)
+    return r.returncode == 0
+
+
 # ── 动态瓶子图标 ─────────────────────────────────
 
 _LIQUID_COLORS = [
@@ -328,6 +365,9 @@ class MyocUsageApp(rumps.App):
         self.menu.add(rumps.MenuItem("📊 用量详情", callback=self.open_usage))
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("🔄 手动刷新", callback=self.manual_refresh))
+        title = "✅ 开机自启" if _autostart_enabled() else "☐ 开机自启"
+        self.autostart_item = rumps.MenuItem(title, callback=self.toggle_autostart)
+        self.menu.add(self.autostart_item)
 
         self.refresh_data(None)
         interval = self.config.get("refresh_interval", 60)
@@ -519,10 +559,17 @@ class MyocUsageApp(rumps.App):
         self._manual_refreshing = False
 
     def open_usage(self, _):
-        import subprocess
         wid = self.config.get("workspace_id", "")
         url = f"https://opencode.ai/workspace/{wid}/usage"
         subprocess.Popen(["open", url])
+
+    def toggle_autostart(self, _):
+        if _autostart_enabled():
+            _uninstall_launchd()
+            self.autostart_item.title = "☐ 开机自启"
+        else:
+            _install_launchd()
+            self.autostart_item.title = "✅ 开机自启"
 
     def quit_app(self, _):
         self._stop_anim()
@@ -541,6 +588,13 @@ if __name__ == "__main__":
         log.error(f"配置文件未找到: {CONFIG_PATH}")
         sys.exit(1)
 
+    if "--install" in sys.argv:
+        _install_launchd()
+        sys.exit(0)
+    if "--uninstall" in sys.argv:
+        _uninstall_launchd()
+        sys.exit(0)
+
     if "--daemon" not in sys.argv:
         # 防止重复启动
         PID_FILE = os.path.expanduser("~/.myocusage.pid")
@@ -553,7 +607,6 @@ if __name__ == "__main__":
                 sys.exit(0)
             except (OSError, ValueError):
                 os.unlink(PID_FILE)
-        import subprocess
         proc = subprocess.Popen(
             [sys.executable, os.path.abspath(__file__), "--daemon"],
             stdout=subprocess.DEVNULL,
