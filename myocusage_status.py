@@ -156,7 +156,12 @@ def parse_usage(data):
     for src_key, period in PERIOD_MAP.items():
         entry = data.get(src_key)
         if isinstance(entry, dict):
-            used = entry.get("cost") or entry.get("amount") or entry.get("usagePercent") or entry.get("usage")
+            used = None
+            for k in ("cost", "amount", "usagePercent", "usage"):
+                v = entry.get(k)
+                if v is not None:
+                    used = v
+                    break
             reset = entry.get("resetInSec")
             limit = entry.get("limit") or entry.get("max") or entry.get("quota") or entry.get("budget") or entry.get("total")
             if used is not None:
