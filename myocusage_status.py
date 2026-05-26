@@ -237,16 +237,20 @@ class MyocUsageApp(rumps.App):
         weekly = self.usage_data.get("weekly")
         hourly = self.usage_data.get("5h")
 
-        for entry in (monthly, weekly, hourly):
+        # 显示用量值最大的那个时段
+        candidates = []
+        for entry, key in [(hourly, "5h"), (weekly, "weekly"), (monthly, "monthly")]:
             if entry and entry["used"] is not None:
-                used = entry["used"]
-                limit = entry.get("limit")
-                if limit:
-                    pct = used / limit * 100
-                    self.title = f"{pct:.0f}%"
-                else:
-                    self.title = f"{used:.0f}%"
-                break
+                candidates.append((entry["used"], entry))
+        if candidates:
+            _, best = max(candidates, key=lambda x: x[0])
+            used = best["used"]
+            limit = best.get("limit")
+            if limit:
+                pct = used / limit * 100
+                self.title = f"{pct:.0f}%"
+            else:
+                self.title = f"{used:.0f}%"
         else:
             self.title = "--"
 
