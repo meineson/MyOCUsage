@@ -418,7 +418,7 @@ def _create_row_view(title_text):
 
 class MyocUsageApp(rumps.App):
     def __init__(self):
-        super().__init__("", title="", quit_button=rumps.MenuItem("⏹️ 退出", callback=self.quit_app))
+        super().__init__("", title="", quit_button=rumps.MenuItem("❎ 退出", callback=self.quit_app))
         self.config = load_config()
         self.usage_data = {}
         self.last_error = None
