@@ -191,69 +191,63 @@ def _liquid_color(pct):
 
 
 def _bottle_angle(pct):
-    """用量 → 倾斜角度。0%=0°, 100%=20°"""
     return pct / 100 * 20
 
 
-def _generate_bottle(usage_pct, angle=0):
-    size = 22
-    canvas = 28
-    img = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+def _render_bottle(usage_pct, angle=0):
+    """在 88x88 画布绘制瓶子 → 缩放到 44x44 → 保存到 ICON_FILE"""
+    S = 88
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    cx, cy = canvas // 2, canvas // 2
-    off_y = 1
-
-    # Neck
-    nw, nh = 4, 5
-    nx, ny = cx - nw // 2, off_y
-    draw.rectangle([nx, ny, nx + nw, ny + nh], outline=(160, 160, 160), width=1)
-
-    # Body
-    bw, bh = 14, 15
-    bx, by = cx - bw // 2, ny + nh - 1
-    r = 2
-    body_box = (bx, by, bx + bw, by + bh)
+    cx = S // 2
     glass = (160, 160, 160)
 
-    # Body outline
-    draw.rounded_rectangle(body_box, radius=r, outline=glass, width=1)
+    nw, nh = S // 5, S // 4
+    nx, ny = cx - nw // 2, S // 16 + 2
+    draw.rounded_rectangle([nx, ny, nx + nw, ny + nh], radius=3, outline=glass, width=3)
 
-    # Liquid — clipped to body shape
+    bw, bh = S // 2, S // 2 + 4
+    bx, by = cx - bw // 2, ny + nh - 3
+    body_box = (bx, by, bx + bw, by + bh)
+    draw.rounded_rectangle(body_box, radius=8, outline=glass, width=3)
+
     liquid_h = int(bh * (100 - usage_pct) / 100)
     if liquid_h > 0:
         color = _liquid_color(usage_pct)
-        # Body mask
-        mask = Image.new("L", (canvas, canvas), 0)
-        ImageDraw.Draw(mask).rounded_rectangle(body_box, radius=r, fill=255)
-        # Liquid area from bottom
-        ltop = by + bh - liquid_h
-        ImageDraw.Draw(mask).rectangle([bx, ltop, bx + bw, by + bh], fill=255)
-        # Fill on a separate layer
-        layer = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+        mask = Image.new("L", (S, S), 0)
+        ImageDraw.Draw(mask).rounded_rectangle(body_box, radius=8, fill=255)
+        ImageDraw.Draw(mask).rectangle([bx, by + bh - liquid_h, bx + bw, by + bh], fill=255)
+
+        layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
         ImageDraw.Draw(layer).rounded_rectangle(
-            [bx + 1, ltop, bx + bw - 1, by + bh - 1],
-            radius=r - 1, fill=color,
+            [bx + 3, by + bh - liquid_h, bx + bw - 3, by + bh - 3],
+            radius=7, fill=color,
         )
-        img = Image.alpha_composite(img, Image.composite(layer, Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0)), mask))
+        img = Image.alpha_composite(
+            img,
+            Image.composite(layer, Image.new("RGBA", (S, S), (0, 0, 0, 0)), mask),
+        )
 
-    # Glass highlight
     draw = ImageDraw.Draw(img)
-    draw.rectangle([bx + 3, by + 3, bx + 5, by + bh - 3], fill=(255, 255, 255, 40))
+    hx, hy = bx + 8, by + 6
+    draw.rectangle([hx, hy, hx + 7, hy + bh - 12], fill=(255, 255, 255, 35))
 
-    # Rotate
     if angle != 0:
         img = img.rotate(angle, expand=True, fillcolor=(0, 0, 0, 0), resample=Image.BICUBIC)
         w, h = img.size
-        left = (w - size) // 2
-        top = (h - size) // 2
-        img = img.crop((left, top, left + size, top + size))
-    else:
-        img = img.crop(((canvas - size) // 2, (canvas - size) // 2,
-                        (canvas + size) // 2, (canvas + size) // 2))
+        side = min(w, h)
+        left = (w - side) // 2
+        top = (h - side) // 2
+        img = img.crop((left, top, left + side, top + side))
 
+    img = img.resize((44, 44), Image.LANCZOS)
     img.save(ICON_FILE, "PNG")
-    return ICON_FILE
+
+
+def _apply_icon(app, pct, angle):
+    _render_bottle(pct, angle)
+    app.icon = ICON_FILE
 
 
 # ── 菜单栏应用 ────────────────────────────────────
@@ -293,9 +287,7 @@ class MyocUsageApp(rumps.App):
     # ── 图标动画 ──
 
     def _set_icon(self, pct, angle):
-        _generate_bottle(pct, angle)
-        self.icon = None  # force reload
-        self.icon = ICON_FILE
+        _apply_icon(self, pct, angle)
 
     def _stop_anim(self):
         if self._anim_timer:
