@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 import requests
 import rumps
 from PIL import Image, ImageDraw
-from AppKit import NSImage
+from AppKit import NSImage, NSFont, NSMutableAttributedString, NSFontAttributeName, NSForegroundColorAttributeName
 
 import warnings
 warnings.filterwarnings("ignore", message=".*urllib3.*")
@@ -346,6 +346,15 @@ def _apply_icon(app, pct, angle):
 
 # ── 菜单栏应用 ────────────────────────────────────
 
+_MONO_FONT = NSFont.fontWithName_("Menlo-Regular", 11)
+
+
+def _set_menu_text(item, text):
+    """以等宽字体设置菜单项文字"""
+    attrs = {NSFontAttributeName: _MONO_FONT}
+    astr = NSMutableAttributedString.alloc().initWithString_attributes_(text, attrs)
+    item._ns_menu_item.setAttributedTitle_(astr)
+
 class MyocUsageApp(rumps.App):
     def __init__(self):
         super().__init__("OC", title="...", quit_button=rumps.MenuItem("🚪 退出", callback=self.quit_app))
@@ -363,10 +372,13 @@ class MyocUsageApp(rumps.App):
         self._manual_refreshing = False
 
         self.menu_items = {
-            "5h": rumps.MenuItem("5小时: --", callback=None),
-            "weekly": rumps.MenuItem("　本周: --", callback=None),
-            "monthly": rumps.MenuItem("　本月: --", callback=None),
+            "5h": rumps.MenuItem("5小时:   --", callback=None),
+            "weekly": rumps.MenuItem("本周:   --", callback=None),
+            "monthly": rumps.MenuItem("本月:   --", callback=None),
         }
+        _set_menu_text(self.menu_items["5h"], "5小时:   --")
+        _set_menu_text(self.menu_items["weekly"], "本周:   --")
+        _set_menu_text(self.menu_items["monthly"], "本月:   --")
         self.menu.add(self.menu_items["5h"])
         self.menu.add(self.menu_items["weekly"])
         self.menu.add(self.menu_items["monthly"])
@@ -474,7 +486,7 @@ class MyocUsageApp(rumps.App):
         else:
             self.title = "--"
 
-        # 菜单项
+        # 菜单项（等宽字体对齐）
         for period in ("5h", "weekly", "monthly"):
             entry = self.usage_data.get(period)
             item = self.menu_items[period]
@@ -486,9 +498,9 @@ class MyocUsageApp(rumps.App):
                 pct_str = f"{used:.0f}%".rjust(4)
                 bar = progress_bar(used, 10)
                 reset_str = _fmt_reset(reset) if reset is not None else ""
-                item.title = f"{label}:  {pct_str}  {bar}  {reset_str}"
+                _set_menu_text(item, f"{label}{pct_str}  {bar}  {reset_str}")
             else:
-                item.title = f"{label}:  --"
+                _set_menu_text(item, f"{label}  --")
 
         # 瓶子图标
         candidates2 = [(e["used"], e) for e in (hourly, weekly, monthly) if e and e["used"] is not None]
