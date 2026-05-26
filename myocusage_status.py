@@ -346,7 +346,7 @@ def _apply_icon(app, pct, angle):
 
 # ── 菜单栏应用 ────────────────────────────────────
 
-_MONO_FONT = NSFont.fontWithName_("Menlo-Regular", 11)
+_MONO_FONT = NSFont.fontWithName_size_("Menlo-Regular", 11)
 
 
 def _set_menu_text(item, text):
