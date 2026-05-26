@@ -325,6 +325,8 @@ class MyocUsageApp(rumps.App):
         self.menu.add(self.menu_items["weekly"])
         self.menu.add(self.menu_items["monthly"])
         self.menu.add(rumps.separator)
+        self.menu.add(rumps.MenuItem("📊 用量详情", callback=self.open_usage))
+        self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("🔄 手动刷新", callback=self.manual_refresh))
 
         self.refresh_data(None)
@@ -515,6 +517,12 @@ class MyocUsageApp(rumps.App):
         self._manual_refreshing = True
         self.refresh_data(None)
         self._manual_refreshing = False
+
+    def open_usage(self, _):
+        import subprocess
+        wid = self.config.get("workspace_id", "")
+        url = f"https://opencode.ai/workspace/{wid}/usage"
+        subprocess.Popen(["open", url])
 
     def quit_app(self, _):
         self._stop_anim()
