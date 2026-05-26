@@ -379,7 +379,8 @@ PROGRESS_H = 10
 
 def _make_label(text, x, w, align_right=False, bold=False):
     """创建 NSTextField 标签"""
-    f = NSTextField.alloc().initWithFrame_(NSMakeRect(x, 0, w, ROW_H))
+    y = (ROW_H - 16) // 2
+    f = NSTextField.alloc().initWithFrame_(NSMakeRect(x, y, w, 16))
     f.setStringValue_(text)
     f.setBordered_(False)
     f.setDrawsBackground_(False)
@@ -410,7 +411,7 @@ def _create_row_view(title_text):
 
     title = _make_label(title_text, 8, 45)
     bar = _make_progress()
-    bar.setFrame_(NSMakeRect(54, 5, PROGRESS_W, PROGRESS_H))
+    bar.setFrame_(NSMakeRect(54, 6, PROGRESS_W, PROGRESS_H))
     pct_label = _make_label("", 143, 28, align_right=True, bold=True)
     reset_label = _make_label("", 174, 82, align_right=True)
 
