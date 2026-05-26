@@ -99,3 +99,7 @@ myocusage/
 ## License
 
 MIT
+
+## 致谢
+
+参考 [wiscaksono/opencode-usage](https://github.com/wiscaksono/opencode-usage) 实现。原项目需完整安装 Xcode 并自行编译，稍显繁琐，故用 Python 重写了本版本，按需取用。
