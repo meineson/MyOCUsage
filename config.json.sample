@@ -13,6 +13,12 @@
   "server_instance": "server-fn:3",
   "_server_instance说明": "同上页面，F12 → Network → _server 请求 → x-server-instance",
 
+  "model_server_id": "15702f3a12ff8bff357f8c2aa154a17e65b746d5f6b96adc9002c86ee0c15205",
+  "_model_server说明": "获取各AI模型用量明细所需的 server_id。F12 → Network → 找返回 usage 数组的 _server 请求 → x-server-id",
+
+  "model_server_instance": "server-fn:0",
+  "_model_server_instance说明": "同上请求的 x-server-instance",
+
   "plan_monthly_limit": null,
   "_limit说明": "如果 API 返回的数据不含用量上限，可在此手动填写美元金额作为百分比计算基准（例如 100）",
 

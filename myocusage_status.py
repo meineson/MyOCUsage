@@ -16,16 +16,25 @@ import requests
 import rumps
 from PIL import Image, ImageDraw
 from AppKit import (
-    NSImage, NSFont,
-    NSView, NSTextField, NSProgressIndicator,
+    NSImage, NSFont, NSFontAttributeName,
+    NSView, NSTextField, NSProgressIndicator, NSImageView,
     NSTextAlignmentRight, NSMakeRect, NSLineBreakByClipping,
     NSProgressIndicatorBarStyle,
 )
+import threading
+
+_UPDATE_RESULT = None
+_UPDATE_SENDER = None
+from Foundation import NSObject, NSAttributedString, NSData
 
 import warnings
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
+VERSION = "0.1.2"
+_VERSION_URL = "https://raw.githubusercontent.com/meineson/MyOCUsage/main/myocusage_status.py"
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_PATH = os.path.abspath(__file__)
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "config.json")
 ICON_FILE = os.path.expanduser("~/.myocusage_icon.png")
 
@@ -178,6 +187,58 @@ def parse_usage(data):
         log.warning(f"无法解析用量数据: {json.dumps(raw_data, ensure_ascii=False)[:300]}")
 
     return results
+
+
+def fetch_model_usage(config):
+    now = datetime.now()
+    tz = config.get("timezone", "+08:00")
+    server_id = config.get("model_server_id", config["server_id"])
+    server_instance = config.get("model_server_instance", config.get("server_instance", "server-fn:0"))
+    args = {
+        "t": {"t": 9, "i": 0, "l": 4, "a": [
+            {"t": 1, "s": config["workspace_id"]},
+            {"t": 0, "s": now.year},
+            {"t": 0, "s": now.month - 1},
+            {"t": 1, "s": tz},
+        ], "o": 0},
+        "f": 31, "m": [],
+    }
+    encoded_args = urllib.parse.quote(json.dumps(args, separators=(",", ":")))
+    url = f"https://opencode.ai/_server?id={server_id}&args={encoded_args}"
+    headers = {
+        "accept": "*/*", "accept-language": "zh-CN,zh;q=0.9",
+        "cookie": config["cookies"],
+        "referer": f"https://opencode.ai/workspace/{config['workspace_id']}/usage",
+        "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "x-server-id": server_id,
+        "x-server-instance": server_instance,
+        "sec-fetch-dest": "empty", "sec-fetch-mode": "cors", "sec-fetch-site": "same-origin",
+    }
+    resp = requests.get(url, headers=headers, timeout=15)
+    resp.raise_for_status()
+    raw = resp.text
+    content_type = resp.headers.get("content-type", "")
+    data = _parse_convex_response(raw) if ("javascript" in content_type or raw.startswith(";")) else resp.json()
+    if isinstance(data, dict) and "value" in data:
+        data = data["value"]
+    # 尝试提取 model 明细数据
+    usage_list = None
+    if isinstance(data, dict):
+        usage_list = data.get("usage")
+    if usage_list is None and isinstance(data, list):
+        usage_list = data
+    if usage_list and isinstance(usage_list, list):
+        model_totals = {}
+        for entry in usage_list:
+            if isinstance(entry, dict) and "model" in entry and "totalCost" in entry:
+                m = entry["model"]
+                model_totals[m] = model_totals.get(m, 0) + entry["totalCost"]
+        if model_totals:
+            total_raw = sum(model_totals.values())
+            cost_list = [(m, c / 100_000_000) for m, c in sorted(model_totals.items(), key=lambda x: -x[1])]
+            return cost_list, total_raw / 100_000_000
+    log.info("当前 server-fn 不返回模型明细，如需模型用量请更新 config.json 中 server_id / server_instance")
+    return [], 0.0
 
 
 # ── 开机自启 ─────────────────────────────────────
@@ -375,6 +436,16 @@ ROW_W = 260
 ROW_H = 22
 PROGRESS_W = 85
 PROGRESS_H = 10
+PIE_VIEW_H = 120
+PIE_CHART_S = 80
+_PIE_COLORS = [
+    (60, 130, 220),   # 蓝
+    (245, 155, 35),   # 橙
+    (80, 180, 80),    # 绿
+    (160, 80, 200),   # 紫
+    (230, 80, 80),    # 红
+    (80, 190, 190),   # 青
+]
 
 
 def _make_label(text, x, w, align_right=False, bold=False):
@@ -422,6 +493,30 @@ def _create_row_view(title_text):
 
     return view, title, bar, pct_label, reset_label
 
+
+_MODEL_ICONS = ["●", "●", "●", "●", "●", "●"]
+
+
+def _render_pie_image(cost_list, total):
+    from io import BytesIO
+    s = PIE_CHART_S
+    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    if total <= 0 or not cost_list:
+        draw.ellipse([3, 3, s - 3, s - 3], fill=(230, 230, 230), outline=(180, 180, 180))
+    else:
+        start = 0
+        for i, (_, cost) in enumerate(cost_list):
+            pct = cost / total
+            end = start + pct * 360
+            color = _PIE_COLORS[i % len(_PIE_COLORS)]
+            draw.pieslice([3, 3, s - 3, s - 3], start, end, fill=color, outline=(255, 255, 255, 200))
+            start = end
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    data = NSData.dataWithBytes_length_(buf.getvalue(), len(buf.getvalue()))
+    return NSImage.alloc().initWithData_(data)
+
 class MyocUsageApp(rumps.App):
     def __init__(self):
         super().__init__("", title="", quit_button=rumps.MenuItem("❌ 退出", callback=self.quit_app))
@@ -456,10 +551,52 @@ class MyocUsageApp(rumps.App):
             self.menu_items[period] = item
             self._period_views[period] = {"title": title, "bar": bar, "pct": pct_label, "reset": reset_label}
         self.menu.add(rumps.separator)
-        self.menu.add(rumps.MenuItem("📥 软件更新", callback=self.open_update))
+        # 饼图菜单行
+        self._model_costs = []
+        self._model_total = 0.0
+        self._pie_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, ROW_W, PIE_VIEW_H))
+        pie_title = NSTextField.alloc().initWithFrame_(NSMakeRect(8, PIE_VIEW_H - 18, 200, 16))
+        pie_title.setBordered_(False)
+        pie_title.setDrawsBackground_(False)
+        pie_title.setEditable_(False)
+        pie_title.setSelectable_(False)
+        pie_title.setFont_(NSFont.boldSystemFontOfSize_(11))
+        pie_title.setStringValue_("模型用量")
+        self._pie_view.addSubview_(pie_title)
+        pie_chart_y = PIE_VIEW_H - 18 - 8 - PIE_CHART_S
+        self._pie_image_view = NSImageView.alloc().initWithFrame_(NSMakeRect(8, pie_chart_y, PIE_CHART_S, PIE_CHART_S))
+        self._pie_image_view.setImage_(_render_pie_image([], 0))
+        self._pie_view.addSubview_(self._pie_image_view)
+        self._pie_legend_labels = []
+        for i in range(5):
+            y = pie_chart_y + 2 + i * 17
+            label = NSTextField.alloc().initWithFrame_(NSMakeRect(98, y, 155, 16))
+            label.setBordered_(False)
+            label.setDrawsBackground_(False)
+            label.setEditable_(False)
+            label.setSelectable_(False)
+            label.setFont_(NSFont.systemFontOfSize_(11))
+            label.setStringValue_("")
+            self._pie_view.addSubview_(label)
+            self._pie_legend_labels.append(label)
+        # Total 行
+        total_y = pie_chart_y + 2 + 5 * 17
+        self._pie_total_label = NSTextField.alloc().initWithFrame_(NSMakeRect(98, total_y, 155, 16))
+        self._pie_total_label.setBordered_(False)
+        self._pie_total_label.setDrawsBackground_(False)
+        self._pie_total_label.setEditable_(False)
+        self._pie_total_label.setSelectable_(False)
+        self._pie_total_label.setFont_(NSFont.boldSystemFontOfSize_(11))
+        self._pie_total_label.setStringValue_("")
+        self._pie_view.addSubview_(self._pie_total_label)
+        pie_item = rumps.MenuItem("", callback=None)
+        pie_item._menuitem.setView_(self._pie_view)
+        self.menu.add(pie_item)
+        self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("📊 用量详情", callback=self.open_usage))
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("🔄 手动刷新", callback=self.manual_refresh))
+        self.menu.add(rumps.MenuItem("📥 自动更新", callback=self.check_update))
         title = "✅ 开机自启" if _autostart_enabled() else "🔳 开机自启"
         self.autostart_item = rumps.MenuItem(title, callback=self.toggle_autostart)
         self.menu.add(self.autostart_item)
@@ -599,6 +736,20 @@ class MyocUsageApp(rumps.App):
         else:
             self._set_icon(0, 0)
 
+        # 更新饼图
+        nsimg = _render_pie_image(self._model_costs, self._model_total)
+        self._pie_image_view.setImage_(nsimg)
+        for i, label in enumerate(self._pie_legend_labels):
+            if i < len(self._model_costs):
+                model, cost = self._model_costs[i]
+                label.setStringValue_(f"● {model}  ${cost:.2f}")
+            else:
+                label.setStringValue_("")
+        if self._model_total > 0:
+            self._pie_total_label.setStringValue_(f"Total: ${self._model_total:.2f}")
+        else:
+            self._pie_total_label.setStringValue_("暂无模型用量")
+
     def _shake_anim(self, pct):
         """手动刷新时的摇晃"""
         self._stop_anim()
@@ -630,6 +781,11 @@ class MyocUsageApp(rumps.App):
 
             self.usage_data = parse_usage(data)
             self.last_error = None
+            # 模型用量
+            try:
+                self._model_costs, self._model_total = fetch_model_usage(self.config)
+            except Exception as e2:
+                log.warning(f"模型用量请求失败: {e2}")
             self._update_display()
             log.info(f"刷新成功: {self.usage_data}")
         except AuthExpiredError:
@@ -659,6 +815,61 @@ class MyocUsageApp(rumps.App):
 
     def open_update(self, _):
         subprocess.Popen(["open", "https://github.com/meineson/MyOCUsage"])
+
+    def check_update(self, sender):
+        sender.title = "📥 检查中..."
+        try:
+            resp = requests.get(_VERSION_URL, timeout=15)
+            resp.raise_for_status()
+            content = resp.text
+        except Exception as e:
+            sender.title = "📥 检查失败"
+            rumps.notification("自动更新", "检查失败", str(e)[:60])
+            return
+        m = re.search(r'^VERSION\s*=\s*"(.+?)"', content, re.MULTILINE)
+        if not m:
+            sender.title = "📥 解析失败"
+            rumps.notification("自动更新", "检查失败", "无法解析远程版本号")
+            return
+        remote_ver = m.group(1)
+        current = tuple(int(x) for x in VERSION.split("."))
+        remote = tuple(int(x) for x in remote_ver.split("."))
+        if remote <= current:
+            sender.title = f"📥 已是最新 v{VERSION}"
+            rumps.notification("自动更新", "已是最新", f"当前版本 {VERSION}")
+            return
+        r = rumps.alert(f"发现新版本 {remote_ver}", "是否自动更新并重启？",
+                        ok="更新", cancel="取消")
+        if not r:
+            sender.title = "📥 自动更新"
+            return
+        new_path = SCRIPT_PATH + ".new"
+        bak_path = SCRIPT_PATH + ".bak"
+        try:
+            with open(new_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(SCRIPT_PATH, bak_path)
+            os.replace(new_path, SCRIPT_PATH)
+            sender.title = f"📥 已更新 v{remote_ver}"
+            rumps.notification("自动更新", "更新完成", f"已升级到 v{remote_ver}，即将重启")
+            self._restart_app()
+        except Exception as e:
+            sender.title = "📥 更新失败"
+            rumps.notification("自动更新", "更新失败", str(e)[:60])
+
+    def _restart_app(self):
+        self._stop_anim()
+        if self.refresh_timer:
+            self.refresh_timer.stop()
+        pid_file = os.path.expanduser("~/.myocusage.pid")
+        if os.path.exists(pid_file):
+            os.unlink(pid_file)
+        subprocess.Popen(
+            [sys.executable, SCRIPT_PATH, "--daemon"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        rumps.quit_application()
 
     def open_usage(self, _):
         wid = self.config.get("workspace_id", "")
