@@ -409,7 +409,7 @@ def _create_row_view(title_text):
     """创建一行菜单项: 标题 + 进度条 + 百分比 + 重置时间"""
     view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, ROW_W, ROW_H))
 
-    title = _make_label(title_text, 8, 45)
+    title = _make_label(title_text, 8, 40)
     bar = _make_progress()
     bar.setFrame_(NSMakeRect(54, 6, PROGRESS_W, PROGRESS_H))
     pct_label = _make_label("", 143, 28, align_right=True, bold=True)
@@ -440,6 +440,14 @@ class MyocUsageApp(rumps.App):
 
         self._period_views = {}
         self.menu_items = {}
+        # 标题行
+        title_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, ROW_W, ROW_H))
+        title_label = _make_label("MyOCUsage", 0, ROW_W, align_right=False, bold=True)
+        title_view.addSubview_(title_label)
+        title_item = rumps.MenuItem("", callback=None)
+        title_item._menuitem.setView_(title_view)
+        self.menu.add(title_item)
+        self.menu.add(rumps.separator)
         for period, p_label in [("5h", "5小时"), ("weekly", "本周"), ("monthly", "本月")]:
             view, title, bar, pct_label, reset_label = _create_row_view(p_label)
             item = rumps.MenuItem("", callback=None)
