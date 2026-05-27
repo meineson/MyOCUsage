@@ -2,7 +2,7 @@
 
 macOS 菜单栏应用，在状态栏实时显示 OpenCode Go订阅的 5 小时 / 本周 / 本月用量及各模型用量饼图。
 
-![菜单栏图标](snap2.png) ![下拉菜单](snap1.png)
+![菜单栏图标](snap.png) 
 
 ## 功能
 
@@ -61,7 +61,7 @@ cp config.json.sample config.json
 {
   "cookies": "oc_locale=zh; auth=Fe26.2**你的认证token**",
   "workspace_id": "wrk_xxxxxxxxxxxxxxxxxxxxx",
-  "server_id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "server_id": "c7389bd0e731f80f49593e5ee53835475f4e28594dd6bd83eb229bab753498cd",
   "server_instance": "server-fn:3",
   "plan_monthly_limit": null,
   "refresh_interval": 60,
