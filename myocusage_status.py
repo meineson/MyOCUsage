@@ -440,12 +440,12 @@ class MyocUsageApp(rumps.App):
 
         self._period_views = {}
         self.menu_items = {}
-        # 标题行
-        title_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, ROW_W, ROW_H))
-        title_label = _make_label("MyOCUsage", 0, ROW_W, align_right=False, bold=True)
-        title_view.addSubview_(title_label)
-        title_item = rumps.MenuItem("", callback=None)
-        title_item._menuitem.setView_(title_view)
+        # 标题行（可点击）
+        title_item = rumps.MenuItem("", callback=self.open_update)
+        ns_item = title_item._menuitem
+        font = NSFont.boldSystemFontOfSize_(13)
+        attr = NSAttributedString.alloc().initWithString_attributes_("MyOCUsage", {NSFontAttributeName: font})
+        ns_item.setAttributedTitle_(attr)
         self.menu.add(title_item)
         self.menu.add(rumps.separator)
         for period, p_label in [("5h", "5小时"), ("weekly", "本周"), ("monthly", "本月")]:
