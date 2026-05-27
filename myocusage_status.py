@@ -533,6 +533,7 @@ class MyocUsageApp(rumps.App):
         self._anim_idx = 0
         self._manual_refreshing = False
         self._update_timer = None
+        self._pending_restart = False
 
         self._period_views = {}
         self.menu_items = {}
@@ -837,6 +838,10 @@ class MyocUsageApp(rumps.App):
         subprocess.Popen(["open", "https://github.com/meineson/MyOCUsage"])
 
     def check_update(self, sender):
+        if self._pending_restart:
+            sender.title = "📥 重启中..."
+            self._restart_app()
+            return
         sender.title = "📥 检查中..."
         self._update_sender = sender
         self._update_pending = True
@@ -911,11 +916,12 @@ class MyocUsageApp(rumps.App):
             sender.title = "📥 更新失败"
             rumps.notification("自动更新", "更新失败", f"{e}")
             return
-        sender.title = f"📥 已更新 v{remote_ver}"
-        rumps.notification("自动更新", "更新完成", f"已升级到 v{remote_ver}，即将重启")
-        self._restart_app()
+        sender.title = "📥 已更新，点击重启"
+        self._pending_restart = True
+        rumps.notification("自动更新", "更新完成", f"已升级到 v{remote_ver}，点击菜单「📥 已更新，点击重启」重启")
 
     def _restart_app(self):
+        self._pending_restart = False
         self._stop_anim()
         if self.refresh_timer:
             self.refresh_timer.stop()
