@@ -18,10 +18,11 @@ import rumps
 from PIL import Image, ImageDraw
 from AppKit import (
     NSImage, NSFont, NSFontAttributeName, NSColor, NSForegroundColorAttributeName,
-    NSParagraphStyleAttributeName, NSApplication,
+    NSParagraphStyleAttributeName, NSApplication, NSAlert,
     NSView, NSTextField, NSProgressIndicator, NSImageView,
     NSTextAlignmentRight, NSMakeRect, NSLineBreakByClipping,
     NSProgressIndicatorBarStyle,
+    NSAlertFirstButtonReturn,
 )
 from Foundation import NSData, NSAttributedString, NSMutableAttributedString, NSMutableParagraphStyle, NSTextTab
 
@@ -29,7 +30,7 @@ import warnings
 import threading
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.10"
+VERSION = "0.1.11"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -890,9 +891,13 @@ class MyocUsageApp(rumps.App):
             rumps.notification("自动更新", "已是最新", f"当前版本 {VERSION}")
             return
         NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
-        r = rumps.alert(f"发现新版本 {remote_ver}", "是否自动更新并重启？",
-                        ok="更新", cancel="取消")
-        if not r:
+        alert = NSAlert.alloc().init()
+        alert.setMessageText_(f"发现新版本 {remote_ver}")
+        alert.setInformativeText_("是否自动更新并重启？")
+        alert.addButtonWithTitle_("更新")
+        alert.addButtonWithTitle_("取消")
+        r = alert.runModal()
+        if r != NSAlertFirstButtonReturn:
             sender.title = "📥 自动更新"
             return
         new_path = SCRIPT_PATH + ".new"
@@ -917,12 +922,7 @@ class MyocUsageApp(rumps.App):
         pid_file = os.path.expanduser("~/.myocusage.pid")
         if os.path.exists(pid_file):
             os.unlink(pid_file)
-        subprocess.Popen(
-            [sys.executable, SCRIPT_PATH, "--daemon"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        rumps.quit_application()
+        os.execv(sys.executable, [sys.executable, SCRIPT_PATH, "--daemon"])
 
     def open_usage(self, _):
         wid = self.config.get("workspace_id", "")
