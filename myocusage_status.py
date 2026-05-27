@@ -17,7 +17,8 @@ import requests
 import rumps
 from PIL import Image, ImageDraw
 from AppKit import (
-    NSImage, NSFont, NSFontAttributeName, NSParagraphStyleAttributeName,
+    NSImage, NSFont, NSFontAttributeName, NSColor, NSForegroundColorAttributeName,
+    NSParagraphStyleAttributeName,
     NSView, NSTextField, NSProgressIndicator, NSImageView,
     NSTextAlignmentRight, NSMakeRect, NSLineBreakByClipping,
     NSProgressIndicatorBarStyle,
@@ -29,7 +30,7 @@ import threading
 import CoreFoundation
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.5"
+VERSION = "0.1.6"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -751,7 +752,16 @@ class MyocUsageApp(rumps.App):
         for i, label in enumerate(self._pie_legend_labels):
             if i < len(self._model_costs):
                 model, cost = self._model_costs[i]
-                label.setStringValue_(f"● {model}  ${cost:.2f}")
+                color = _PIE_COLORS[i % len(_PIE_COLORS)]
+                c = NSColor.colorWithRed_green_blue_alpha_(color[0]/255, color[1]/255, color[2]/255, 1)
+                attr = NSMutableAttributedString.alloc().init()
+                dot = NSAttributedString.alloc().initWithString_attributes_(
+                    "● ", {NSForegroundColorAttributeName: c})
+                rest = NSAttributedString.alloc().initWithString_attributes_(
+                    f"{model}  ${cost:.2f}", {NSForegroundColorAttributeName: NSColor.blackColor()})
+                attr.appendAttributedString_(dot)
+                attr.appendAttributedString_(rest)
+                label.setAttributedStringValue_(attr)
             else:
                 label.setStringValue_("")
         if self._model_total > 0:
