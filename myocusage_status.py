@@ -17,17 +17,17 @@ import requests
 import rumps
 from PIL import Image, ImageDraw
 from AppKit import (
-    NSImage, NSFont, NSButton,
+    NSImage, NSFont, NSFontAttributeName, NSParagraphStyleAttributeName,
     NSView, NSTextField, NSProgressIndicator, NSImageView,
     NSTextAlignmentRight, NSMakeRect, NSLineBreakByClipping,
     NSProgressIndicatorBarStyle,
 )
-from Foundation import NSData
+from Foundation import NSData, NSAttributedString, NSMutableAttributedString, NSMutableParagraphStyle, NSTextTab
 
 import warnings
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -533,25 +533,21 @@ class MyocUsageApp(rumps.App):
         self._period_views = {}
         self.menu_items = {}
         # 标题行（可点击跳转 GitHub）
-        title_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, ROW_W, ROW_H))
-        title_btn = NSButton.alloc().initWithFrame_(NSMakeRect(8, 2, 150, 20))
-        title_btn.setTitle_("MyOCUsage")
-        title_btn.setBordered_(False)
-        title_btn.setFont_(NSFont.boldSystemFontOfSize_(13))
-        title_btn.setTarget_(self)
-        title_btn.setAction_("open_update:")
-        title_view.addSubview_(title_btn)
-        ver_label = NSTextField.alloc().initWithFrame_(NSMakeRect(ROW_W - 70, 4, 62, 14))
-        ver_label.setBordered_(False)
-        ver_label.setDrawsBackground_(False)
-        ver_label.setEditable_(False)
-        ver_label.setSelectable_(False)
-        ver_label.setFont_(NSFont.systemFontOfSize_(10))
-        ver_label.setAlignment_(NSTextAlignmentRight)
-        ver_label.setStringValue_(f"v{VERSION}")
-        title_view.addSubview_(ver_label)
         title_item = rumps.MenuItem("", callback=self.open_update)
-        title_item._menuitem.setView_(title_view)
+        ns_item = title_item._menuitem
+        bold = NSFont.boldSystemFontOfSize_(13)
+        reg = NSFont.systemFontOfSize_(10)
+        para = NSMutableParagraphStyle.alloc().init()
+        tab = NSTextTab.alloc().initWithTextAlignment_location_options_(NSTextAlignmentRight, 240, None)
+        para.setTabStops_([tab])
+        part1 = NSAttributedString.alloc().initWithString_attributes_(
+            "MyOCUsage", {NSFontAttributeName: bold, NSParagraphStyleAttributeName: para})
+        part2 = NSAttributedString.alloc().initWithString_attributes_(
+            f"\tv{VERSION}", {NSFontAttributeName: reg})
+        attr = NSMutableAttributedString.alloc().init()
+        attr.appendAttributedString_(part1)
+        attr.appendAttributedString_(part2)
+        ns_item.setAttributedTitle_(attr)
         self.menu.add(title_item)
         self.menu.add(rumps.separator)
         for period, p_label in [("5h", "5小时"), ("weekly", "本周"), ("monthly", "本月")]:
