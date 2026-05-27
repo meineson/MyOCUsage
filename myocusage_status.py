@@ -27,10 +27,9 @@ from Foundation import NSData, NSAttributedString, NSMutableAttributedString, NS
 
 import warnings
 import threading
-import CoreFoundation
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.6"
+VERSION = "0.1.7"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -532,6 +531,7 @@ class MyocUsageApp(rumps.App):
         self._anim_frames = []
         self._anim_idx = 0
         self._manual_refreshing = False
+        self._update_timer = None
 
         self._period_views = {}
         self.menu_items = {}
@@ -541,7 +541,7 @@ class MyocUsageApp(rumps.App):
         bold = NSFont.boldSystemFontOfSize_(13)
         reg = NSFont.systemFontOfSize_(10)
         para = NSMutableParagraphStyle.alloc().init()
-        tab = NSTextTab.alloc().initWithTextAlignment_location_options_(NSTextAlignmentRight, 240, None)
+        tab = NSTextTab.alloc().initWithTextAlignment_location_options_(NSTextAlignmentRight, 240, {})
         para.setTabStops_([tab])
         part1 = NSAttributedString.alloc().initWithString_attributes_(
             "MyOCUsage", {NSFontAttributeName: bold, NSParagraphStyleAttributeName: para})
@@ -837,14 +837,17 @@ class MyocUsageApp(rumps.App):
 
     def check_update(self, sender):
         sender.title = "📥 检查中..."
-        t = threading.Thread(target=self._check_update_bg, args=(sender,), daemon=True)
+        self._update_sender = sender
+        self._update_pending = True
+        self._update_error = None
+        self._update_remote_ver = None
+        self._update_content = None
+        t = threading.Thread(target=self._check_update_bg, daemon=True)
         t.start()
+        self._update_timer = rumps.Timer(lambda _: self._check_update_tick(sender), 0.5)
+        self._update_timer.start()
 
-    def _main_ui(self, fn):
-        CoreFoundation.CFRunLoopPerformBlock(CoreFoundation.CFRunLoopGetMain(), 0, fn)
-        CoreFoundation.CFRunLoopWakeUp(CoreFoundation.CFRunLoopGetMain())
-
-    def _check_update_bg(self, sender):
+    def _check_update_bg(self):
         try:
             resp = requests.get(_VERSION_URL,
                                 headers={"Accept": "application/vnd.github.v3+json"},
@@ -853,35 +856,41 @@ class MyocUsageApp(rumps.App):
             data = resp.json()
             content = base64.b64decode(data["content"]).decode("utf-8")
         except Exception as e:
-            self._main_ui(lambda: self._check_result(sender, "检查失败", str(e)[:60]))
+            self._update_pending = False
+            self._update_error = str(e)
             return
         m = re.search(r'^VERSION\s*=\s*"(.+?)"', content, re.MULTILINE)
         if not m:
-            self._main_ui(lambda: self._check_result(sender, "解析失败", "无法解析版本号"))
+            self._update_pending = False
+            self._update_error = "无法解析版本号"
             return
-        remote_ver = m.group(1)
+        self._update_remote_ver = m.group(1)
+        self._update_content = content
+        self._update_pending = False
+        self._update_error = None
+
+    def _check_update_tick(self, sender):
+        if self._update_pending:
+            return
+        self._update_timer.stop()
+        del self._update_timer
+        if self._update_error:
+            sender.title = "📥 检查失败"
+            rumps.notification("自动更新", "检查失败", self._update_error[:60])
+            return
+        remote_ver = self._update_remote_ver
+        content = self._update_content
         current = tuple(int(x) for x in VERSION.split("."))
         remote = tuple(int(x) for x in remote_ver.split("."))
         if remote <= current:
-            self._main_ui(lambda: self._check_result(sender, "已是最新", f"当前 {VERSION}", False))
+            sender.title = f"📥 已是最新 v{VERSION}"
+            rumps.notification("自动更新", "已是最新", f"当前版本 {VERSION}")
             return
-        def ask():
-            r = rumps.alert(f"发现新版本 {remote_ver}", "是否自动更新并重启？",
-                            ok="更新", cancel="取消")
-            if r:
-                self._apply_update(content, remote_ver, sender)
-            else:
-                sender.title = "📥 自动更新"
-        self._main_ui(ask)
-
-    def _check_result(self, sender, label, detail, show_alert=True):
-        sender.title = f"📥 {label}"
-        if show_alert:
-            rumps.alert("自动更新", detail)
-        else:
-            rumps.notification("自动更新", label, detail)
-
-    def _apply_update(self, content, ver, sender):
+        r = rumps.alert(f"发现新版本 {remote_ver}", "是否自动更新并重启？",
+                        ok="更新", cancel="取消")
+        if not r:
+            sender.title = "📥 自动更新"
+            return
         new_path = SCRIPT_PATH + ".new"
         bak_path = SCRIPT_PATH + ".bak"
         try:
@@ -889,8 +898,8 @@ class MyocUsageApp(rumps.App):
                 f.write(content)
             os.replace(SCRIPT_PATH, bak_path)
             os.replace(new_path, SCRIPT_PATH)
-            sender.title = f"📥 已更新 v{ver}"
-            rumps.notification("自动更新", "更新完成", f"已升级到 v{ver}，即将重启")
+            sender.title = f"📥 已更新 v{remote_ver}"
+            rumps.notification("自动更新", "更新完成", f"已升级到 v{remote_ver}，即将重启")
             self._restart_app()
         except Exception as e:
             sender.title = "📥 更新失败"
