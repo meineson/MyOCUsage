@@ -18,7 +18,7 @@ import rumps
 from PIL import Image, ImageDraw
 from AppKit import (
     NSImage, NSFont, NSFontAttributeName, NSColor, NSForegroundColorAttributeName,
-    NSParagraphStyleAttributeName,
+    NSParagraphStyleAttributeName, NSApplication,
     NSView, NSTextField, NSProgressIndicator, NSImageView,
     NSTextAlignmentRight, NSMakeRect, NSLineBreakByClipping,
     NSProgressIndicatorBarStyle,
@@ -29,7 +29,7 @@ import warnings
 import threading
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.8"
+VERSION = "0.1.9"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -873,7 +873,10 @@ class MyocUsageApp(rumps.App):
         if self._update_pending:
             return
         self._update_timer.stop()
-        del self._update_timer
+        try:
+            del self._update_timer
+        except AttributeError:
+            pass
         if self._update_error:
             sender.title = "📥 检查失败"
             rumps.notification("自动更新", "检查失败", self._update_error[:60])
@@ -886,6 +889,7 @@ class MyocUsageApp(rumps.App):
             sender.title = f"📥 已是最新 v{VERSION}"
             rumps.notification("自动更新", "已是最新", f"当前版本 {VERSION}")
             return
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
         r = rumps.alert(f"发现新版本 {remote_ver}", "是否自动更新并重启？",
                         ok="更新", cancel="取消")
         if not r:
