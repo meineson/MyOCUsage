@@ -30,7 +30,7 @@ import warnings
 import threading
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.14"
+VERSION = "0.1.15"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
