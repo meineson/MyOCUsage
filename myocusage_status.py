@@ -30,7 +30,7 @@ import warnings
 import threading
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.11"
+VERSION = "0.1.12"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -922,7 +922,13 @@ class MyocUsageApp(rumps.App):
         pid_file = os.path.expanduser("~/.myocusage.pid")
         if os.path.exists(pid_file):
             os.unlink(pid_file)
-        os.execv(sys.executable, [sys.executable, SCRIPT_PATH, "--daemon"])
+        subprocess.Popen(
+            ["/bin/sh", "-c",
+             f"sleep 1 && '{sys.executable}' '{SCRIPT_PATH}' --daemon &"],
+            start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        os._exit(0)
 
     def open_usage(self, _):
         wid = self.config.get("workspace_id", "")
