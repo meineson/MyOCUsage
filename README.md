@@ -117,3 +117,5 @@ MIT
 ## 致谢
 
 参考 [wiscaksono/opencode-usage](https://github.com/wiscaksono/opencode-usage) 实现。原项目需完整安装 Xcode 并自行编译，稍显繁琐，故用 Python 重写了本版本，按需取用。
+
+![Visitors](https://api.visitorbadge.io/api/visitors?path=https%3A%2F%2Fgithub.com%2Fmeineson%2FMyOCUsage&label=%E8%AE%BF%E5%AE%A2&countColor=%23263759&labelStyle=none)
