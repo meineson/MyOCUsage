@@ -6,6 +6,7 @@ import os
 import re
 import sys
 import math
+import base64
 import plistlib
 import subprocess
 import urllib.parse
@@ -16,22 +17,18 @@ import requests
 import rumps
 from PIL import Image, ImageDraw
 from AppKit import (
-    NSImage, NSFont, NSFontAttributeName,
+    NSImage, NSFont, NSButton,
     NSView, NSTextField, NSProgressIndicator, NSImageView,
     NSTextAlignmentRight, NSMakeRect, NSLineBreakByClipping,
     NSProgressIndicatorBarStyle,
 )
-import threading
-
-_UPDATE_RESULT = None
-_UPDATE_SENDER = None
-from Foundation import NSObject, NSAttributedString, NSData
+from Foundation import NSData
 
 import warnings
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.2"
-_VERSION_URL = "https://raw.githubusercontent.com/meineson/MyOCUsage/main/myocusage_status.py"
+VERSION = "0.1.3"
+_VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPT_PATH = os.path.abspath(__file__)
@@ -535,12 +532,26 @@ class MyocUsageApp(rumps.App):
 
         self._period_views = {}
         self.menu_items = {}
-        # 标题行（可点击）
+        # 标题行（可点击跳转 GitHub）
+        title_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, ROW_W, ROW_H))
+        title_btn = NSButton.alloc().initWithFrame_(NSMakeRect(8, 2, 150, 20))
+        title_btn.setTitle_("MyOCUsage")
+        title_btn.setBordered_(False)
+        title_btn.setFont_(NSFont.boldSystemFontOfSize_(13))
+        title_btn.setTarget_(self)
+        title_btn.setAction_("open_update:")
+        title_view.addSubview_(title_btn)
+        ver_label = NSTextField.alloc().initWithFrame_(NSMakeRect(ROW_W - 70, 4, 62, 14))
+        ver_label.setBordered_(False)
+        ver_label.setDrawsBackground_(False)
+        ver_label.setEditable_(False)
+        ver_label.setSelectable_(False)
+        ver_label.setFont_(NSFont.systemFontOfSize_(10))
+        ver_label.setAlignment_(NSTextAlignmentRight)
+        ver_label.setStringValue_(f"v{VERSION}")
+        title_view.addSubview_(ver_label)
         title_item = rumps.MenuItem("", callback=self.open_update)
-        ns_item = title_item._menuitem
-        font = NSFont.boldSystemFontOfSize_(13)
-        attr = NSAttributedString.alloc().initWithString_attributes_("MyOCUsage", {NSFontAttributeName: font})
-        ns_item.setAttributedTitle_(attr)
+        title_item._menuitem.setView_(title_view)
         self.menu.add(title_item)
         self.menu.add(rumps.separator)
         for period, p_label in [("5h", "5小时"), ("weekly", "本周"), ("monthly", "本月")]:
@@ -594,8 +605,8 @@ class MyocUsageApp(rumps.App):
         self.menu.add(pie_item)
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("📊 用量详情", callback=self.open_usage))
-        self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("🔄 手动刷新", callback=self.manual_refresh))
+        self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("📥 自动更新", callback=self.check_update))
         title = "✅ 开机自启" if _autostart_enabled() else "🔳 开机自启"
         self.autostart_item = rumps.MenuItem(title, callback=self.toggle_autostart)
@@ -819,9 +830,12 @@ class MyocUsageApp(rumps.App):
     def check_update(self, sender):
         sender.title = "📥 检查中..."
         try:
-            resp = requests.get(_VERSION_URL, timeout=15)
+            resp = requests.get(_VERSION_URL,
+                                headers={"Accept": "application/vnd.github.v3+json"},
+                                timeout=15)
             resp.raise_for_status()
-            content = resp.text
+            data = resp.json()
+            content = base64.b64decode(data["content"]).decode("utf-8")
         except Exception as e:
             sender.title = "📥 检查失败"
             rumps.notification("自动更新", "检查失败", str(e)[:60])
