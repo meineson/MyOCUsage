@@ -29,7 +29,7 @@ import warnings
 import threading
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.9"
+VERSION = "0.1.10"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -902,12 +902,13 @@ class MyocUsageApp(rumps.App):
                 f.write(content)
             os.replace(SCRIPT_PATH, bak_path)
             os.replace(new_path, SCRIPT_PATH)
-            sender.title = f"📥 已更新 v{remote_ver}"
-            rumps.notification("自动更新", "更新完成", f"已升级到 v{remote_ver}，即将重启")
-            self._restart_app()
         except Exception as e:
             sender.title = "📥 更新失败"
-            rumps.notification("自动更新", "更新失败", str(e)[:60])
+            rumps.notification("自动更新", "更新失败", f"{e}")
+            return
+        sender.title = f"📥 已更新 v{remote_ver}"
+        rumps.notification("自动更新", "更新完成", f"已升级到 v{remote_ver}，即将重启")
+        self._restart_app()
 
     def _restart_app(self):
         self._stop_anim()
