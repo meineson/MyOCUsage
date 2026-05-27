@@ -30,7 +30,7 @@ import warnings
 import threading
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.13"
+VERSION = "0.1.14"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -433,11 +433,12 @@ def _apply_icon(app, pct, angle):
 # ── 菜单栏应用 ────────────────────────────────────
 
 ROW_W = 260
-ROW_H = 22
+ROW_H = 26
 PROGRESS_W = 85
-PROGRESS_H = 10
+PROGRESS_H = 12
 PIE_VIEW_H = 120
 PIE_CHART_S = 80
+MAX_MODELS = 6
 _PIE_COLORS = [
     (60, 130, 220),   # 蓝
     (245, 155, 35),   # 橙
@@ -450,7 +451,7 @@ _PIE_COLORS = [
 
 def _make_label(text, x, w, align_right=False, bold=False):
     """创建 NSTextField 标签"""
-    y = (ROW_H - 16) // 2
+    y = (ROW_H - 16) // 2 + 1
     f = NSTextField.alloc().initWithFrame_(NSMakeRect(x, y, w, 16))
     f.setStringValue_(text)
     f.setBordered_(False)
@@ -466,7 +467,8 @@ def _make_label(text, x, w, align_right=False, bold=False):
 
 def _make_progress():
     """创建原生进度条"""
-    p = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(0, 4, PROGRESS_W, PROGRESS_H))
+    y = (ROW_H - PROGRESS_H) // 2
+    p = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(0, y, PROGRESS_W, PROGRESS_H))
     p.setStyle_(NSProgressIndicatorBarStyle)
     p.setIndeterminate_(False)
     p.setMinValue_(0)
@@ -482,7 +484,7 @@ def _create_row_view(title_text):
 
     title = _make_label(title_text, 8, 40)
     bar = _make_progress()
-    bar.setFrame_(NSMakeRect(54, 6, PROGRESS_W, PROGRESS_H))
+    bar.setFrame_(NSMakeRect(54, (ROW_H - PROGRESS_H) // 2, PROGRESS_W, PROGRESS_H))
     pct_label = _make_label("", 143, 28, align_right=True, bold=True)
     reset_label = _make_label("", 174, 82, align_right=True)
 
@@ -548,7 +550,7 @@ class MyocUsageApp(rumps.App):
         part1 = NSAttributedString.alloc().initWithString_attributes_(
             "MyOCUsage", {NSFontAttributeName: bold, NSParagraphStyleAttributeName: para})
         part2 = NSAttributedString.alloc().initWithString_attributes_(
-            f"\tv{VERSION}", {NSFontAttributeName: reg})
+            f"\tv{VERSION}", {NSFontAttributeName: reg, NSForegroundColorAttributeName: NSColor.grayColor()})
         attr = NSMutableAttributedString.alloc().init()
         attr.appendAttributedString_(part1)
         attr.appendAttributedString_(part2)
@@ -563,50 +565,46 @@ class MyocUsageApp(rumps.App):
             self.menu_items[period] = item
             self._period_views[period] = {"title": title, "bar": bar, "pct": pct_label, "reset": reset_label}
         self.menu.add(rumps.separator)
+        self.error_item = rumps.MenuItem("", callback=None)
+        self.error_item.hide()
+        self.menu.add(self.error_item)
         # 饼图菜单行
         self._model_costs = []
         self._model_total = 0.0
         self._pie_view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, ROW_W, PIE_VIEW_H))
-        pie_title = NSTextField.alloc().initWithFrame_(NSMakeRect(8, PIE_VIEW_H - 18, 200, 16))
+        pie_title = NSTextField.alloc().initWithFrame_(NSMakeRect(8, PIE_VIEW_H - 18, 244, 16))
         pie_title.setBordered_(False)
         pie_title.setDrawsBackground_(False)
         pie_title.setEditable_(False)
         pie_title.setSelectable_(False)
         pie_title.setFont_(NSFont.boldSystemFontOfSize_(11))
-        pie_title.setStringValue_("模型用量")
+        pie_title.setStringValue_("当月模型用量")
+        self._pie_title = pie_title
         self._pie_view.addSubview_(pie_title)
         pie_chart_y = PIE_VIEW_H - 18 - 8 - PIE_CHART_S
         self._pie_image_view = NSImageView.alloc().initWithFrame_(NSMakeRect(8, pie_chart_y, PIE_CHART_S, PIE_CHART_S))
         self._pie_image_view.setImage_(_render_pie_image([], 0))
         self._pie_view.addSubview_(self._pie_image_view)
         self._pie_legend_labels = []
-        for i in range(5):
-            y = pie_chart_y + 2 + i * 17
-            label = NSTextField.alloc().initWithFrame_(NSMakeRect(98, y, 155, 16))
+        for i in range(MAX_MODELS):
+            y = pie_chart_y + 2 + i * 12
+            label = NSTextField.alloc().initWithFrame_(NSMakeRect(96, y, 157, 16))
             label.setBordered_(False)
             label.setDrawsBackground_(False)
             label.setEditable_(False)
             label.setSelectable_(False)
             label.setFont_(NSFont.systemFontOfSize_(11))
+            label.setAlignment_(NSTextAlignmentRight)
             label.setStringValue_("")
             self._pie_view.addSubview_(label)
             self._pie_legend_labels.append(label)
-        # Total 行
-        total_y = pie_chart_y + 2 + 5 * 17
-        self._pie_total_label = NSTextField.alloc().initWithFrame_(NSMakeRect(98, total_y, 155, 16))
-        self._pie_total_label.setBordered_(False)
-        self._pie_total_label.setDrawsBackground_(False)
-        self._pie_total_label.setEditable_(False)
-        self._pie_total_label.setSelectable_(False)
-        self._pie_total_label.setFont_(NSFont.boldSystemFontOfSize_(11))
-        self._pie_total_label.setStringValue_("")
-        self._pie_view.addSubview_(self._pie_total_label)
         pie_item = rumps.MenuItem("", callback=None)
         pie_item._menuitem.setView_(self._pie_view)
         self.menu.add(pie_item)
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("📊 用量详情", callback=self.open_usage))
-        self.menu.add(rumps.MenuItem("🔄 手动刷新", callback=self.manual_refresh))
+        self.refresh_item = rumps.MenuItem("🔄 手动刷新", callback=self.manual_refresh)
+        self.menu.add(self.refresh_item)
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("📥 自动更新", callback=self.check_update))
         title = "✅ 开机自启" if _autostart_enabled() else "🔳 开机自启"
@@ -749,11 +747,17 @@ class MyocUsageApp(rumps.App):
             self._set_icon(0, 0)
 
         # 更新饼图
-        nsimg = _render_pie_image(self._model_costs, self._model_total)
+        if len(self._model_costs) > MAX_MODELS:
+            display_costs = self._model_costs[:MAX_MODELS - 1]
+            other_cost = sum(c for _, c in self._model_costs[MAX_MODELS - 1:])
+            display_costs = display_costs + [("其他", other_cost)]
+        else:
+            display_costs = self._model_costs
+        nsimg = _render_pie_image(display_costs, self._model_total)
         self._pie_image_view.setImage_(nsimg)
         for i, label in enumerate(self._pie_legend_labels):
-            if i < len(self._model_costs):
-                model, cost = self._model_costs[i]
+            if i < len(display_costs):
+                model, cost = display_costs[i]
                 color = _PIE_COLORS[i % len(_PIE_COLORS)]
                 c = NSColor.colorWithRed_green_blue_alpha_(color[0]/255, color[1]/255, color[2]/255, 1)
                 attr = NSMutableAttributedString.alloc().init()
@@ -767,9 +771,16 @@ class MyocUsageApp(rumps.App):
             else:
                 label.setStringValue_("")
         if self._model_total > 0:
-            self._pie_total_label.setStringValue_(f"Total: ${self._model_total:.2f}")
+            attr = NSMutableAttributedString.alloc().init()
+            title_part = NSAttributedString.alloc().initWithString_attributes_(
+                "当月模型用量 ", {NSFontAttributeName: NSFont.boldSystemFontOfSize_(11), NSForegroundColorAttributeName: NSColor.blackColor()})
+            total_part = NSAttributedString.alloc().initWithString_attributes_(
+                f"Total: ${self._model_total:.2f}", {NSForegroundColorAttributeName: NSColor.grayColor(), NSFontAttributeName: NSFont.systemFontOfSize_(10)})
+            attr.appendAttributedString_(title_part)
+            attr.appendAttributedString_(total_part)
+            self._pie_title.setAttributedStringValue_(attr)
         else:
-            self._pie_total_label.setStringValue_("暂无模型用量")
+            self._pie_title.setStringValue_("当月模型用量")
 
     def _shake_anim(self, pct):
         """手动刷新时的摇晃"""
@@ -802,6 +813,7 @@ class MyocUsageApp(rumps.App):
 
             self.usage_data = parse_usage(data)
             self.last_error = None
+            self.error_item.hide()
             # 模型用量
             try:
                 self._model_costs, self._model_total = fetch_model_usage(self.config)
@@ -813,6 +825,8 @@ class MyocUsageApp(rumps.App):
             self.title = "🔒"
             self.menu_items["monthly"].title = "认证过期，更新 config.json cookies"
             self.last_error = "认证过期"
+            self.error_item.title = "⚠️ 认证已过期，请更新 cookies"
+            self.error_item.show()
             log.warning("认证已过期")
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response is not None else "?"
@@ -820,19 +834,26 @@ class MyocUsageApp(rumps.App):
                 self.title = "🔒"
                 self.menu_items["monthly"].title = "认证过期，更新 config.json cookies"
                 self.last_error = f"HTTP {status}"
+                self.error_item.title = f"⚠️ 认证失败 (HTTP {status})"
             else:
                 self.title = "ERR"
                 self.last_error = str(e)
+                self.error_item.title = f"⚠️ 请求错误: HTTP {status}"
+            self.error_item.show()
             log.error(f"API 错误: {e}")
         except Exception as e:
             self.title = "ERR"
             self.last_error = str(e)
+            self.error_item.title = f"⚠️ {str(e)[:40]}"
+            self.error_item.show()
             log.error(f"刷新失败: {e}")
 
     def manual_refresh(self, _):
+        self.refresh_item.title = "🔄 刷新中..."
         self._manual_refreshing = True
         self.refresh_data(None)
         self._manual_refreshing = False
+        self.refresh_item.title = "🔄 手动刷新"
 
     def open_update(self, _):
         subprocess.Popen(["open", "https://github.com/meineson/MyOCUsage"])
