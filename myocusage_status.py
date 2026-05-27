@@ -30,7 +30,7 @@ import warnings
 import threading
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.15"
+VERSION = "0.1.16"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -764,7 +764,7 @@ class MyocUsageApp(rumps.App):
                 dot = NSAttributedString.alloc().initWithString_attributes_(
                     "● ", {NSForegroundColorAttributeName: c})
                 rest = NSAttributedString.alloc().initWithString_attributes_(
-                    f"{model}  ${cost:.2f}", {NSForegroundColorAttributeName: NSColor.blackColor()})
+                    f"{model}  ${cost:.2f}", {NSForegroundColorAttributeName: NSColor.labelColor()})
                 attr.appendAttributedString_(dot)
                 attr.appendAttributedString_(rest)
                 label.setAttributedStringValue_(attr)
@@ -773,9 +773,9 @@ class MyocUsageApp(rumps.App):
         if self._model_total > 0:
             attr = NSMutableAttributedString.alloc().init()
             title_part = NSAttributedString.alloc().initWithString_attributes_(
-                "当月模型用量 ", {NSFontAttributeName: NSFont.boldSystemFontOfSize_(11), NSForegroundColorAttributeName: NSColor.blackColor()})
+                "当月模型用量 ", {NSFontAttributeName: NSFont.boldSystemFontOfSize_(11), NSForegroundColorAttributeName: NSColor.labelColor()})
             total_part = NSAttributedString.alloc().initWithString_attributes_(
-                f"Total: ${self._model_total:.2f}", {NSForegroundColorAttributeName: NSColor.grayColor(), NSFontAttributeName: NSFont.systemFontOfSize_(10)})
+                f"Total: ${self._model_total:.2f}", {NSForegroundColorAttributeName: NSColor.secondaryLabelColor(), NSFontAttributeName: NSFont.systemFontOfSize_(10)})
             attr.appendAttributedString_(title_part)
             attr.appendAttributedString_(total_part)
             self._pie_title.setAttributedStringValue_(attr)
