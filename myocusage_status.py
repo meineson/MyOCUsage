@@ -30,7 +30,7 @@ import warnings
 import threading
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.16"
+VERSION = "0.1.17"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -536,6 +536,12 @@ class MyocUsageApp(rumps.App):
         self._manual_refreshing = False
         self._update_timer = None
         self._pending_restart = False
+        self._refresh_state = None
+        self._refresh_poll_timer = None
+        self._bg_usage = {}
+        self._bg_model_costs = []
+        self._bg_model_total = 0.0
+        self._bg_error = None
 
         self._period_views = {}
         self.menu_items = {}
@@ -612,10 +618,19 @@ class MyocUsageApp(rumps.App):
         self.menu.add(self.autostart_item)
 
         self.refresh_data(None)
-        interval = self.config.get("refresh_interval", 60)
+        interval = self.config.get("refresh_interval", 300)
         self.refresh_timer = rumps.Timer(self.refresh_data, interval)
         self.refresh_timer.start()
         log.info("MyocUsage 已启动")
+
+    def _set_ns_title(self, text, font_size=10):
+        rumps.App.title.fset(self, text)
+        btn = getattr(self, '_ns_status_bar_button', None)
+        if btn:
+            attr = NSAttributedString.alloc().initWithString_attributes_(
+                text, {NSFontAttributeName: NSFont.menuBarFontOfSize_(font_size),
+                       NSBaselineOffsetAttributeName: -4})
+            btn.setAttributedTitle_(attr)
 
     # ── 图标动画 ──
 
@@ -629,6 +644,10 @@ class MyocUsageApp(rumps.App):
         self._anim_frames = []
         self._anim_idx = 0
         self._manual_refreshing = False
+        if self._refresh_poll_timer:
+            self._refresh_poll_timer.stop()
+            self._refresh_poll_timer = None
+        self._refresh_state = None
 
     def _anim_tick(self, _):
         if self._anim_idx >= len(self._anim_frames):
@@ -648,6 +667,14 @@ class MyocUsageApp(rumps.App):
         is_reset = diff_pct >= 30
 
         frames = []
+        # 每次刷新转一圈
+        spin_frames = 12
+        for i in range(spin_frames):
+            t = i / max(spin_frames - 1, 1)
+            ease = t * t * (3 - 2 * t)
+            angle = from_a + 360 * ease
+            frames.append(angle)
+
         if is_reset:
             # 重置：先回正 → 过冲 → 摇晃站稳
             for i in range(n):
@@ -698,14 +725,27 @@ class MyocUsageApp(rumps.App):
             _, best = max(candidates, key=lambda x: x[0])
             used = best["used"]
             limit = best.get("limit")
-            if limit:
-                pct = used / limit * 100
-                self.title = f"{pct:.0f}%"
-            else:
-                pct = used
-                self.title = f"{pct:.0f}%"
+            best_pct = used / limit * 100 if limit else used
+            hourly_pct_val = 0
+            emoji = "😊"
+            if hourly and hourly["used"] is not None:
+                h_used = hourly["used"]
+                h_limit = hourly.get("limit")
+                hourly_pct_val = h_used / h_limit * 100 if h_limit else h_used
+                reset = hourly.get("resetInSec")
+                if reset is not None:
+                    elapsed_ratio = 1 - reset / 18000
+                    if elapsed_ratio > 0:
+                        step_ratio = hourly_pct_val / (elapsed_ratio * 100) if elapsed_ratio > 0 else 0
+                        if step_ratio < 0.85:
+                            emoji = "😊"
+                        elif step_ratio <= 1.30:
+                            emoji = "😐"
+                        else:
+                            emoji = "😰"
+            self._set_ns_title(f"{best_pct:.0f}% | {hourly_pct_val:.0f}%{emoji}")
         else:
-            self.title = "--"
+            self._set_ns_title("--")
 
         # 菜单项（原生控件渲染）
         for period in ("5h", "weekly", "monthly"):
@@ -727,22 +767,16 @@ class MyocUsageApp(rumps.App):
                 v["pct"].setStringValue_("--")
                 v["reset"].setStringValue_("")
 
-        # 瓶子图标
+        # 瓶子图标（每次刷新都转一圈）
         candidates2 = [(e["used"], e) for e in (hourly, weekly, monthly) if e and e["used"] is not None]
         if candidates2:
             _, best = max(candidates2, key=lambda x: x[0])
             used = best["used"]
             limit = best.get("limit")
             new_pct = used / limit * 100 if limit else used
-
-            if force_shake or self._manual_refreshing:
-                self._shake_anim(new_pct)
-            elif abs(new_pct - self._display_pct) > 0.5:
-                old_pct = self._display_pct
-                self._display_pct = new_pct
-                self._start_anim(old_pct, new_pct)
-            else:
-                self._set_icon(new_pct, _bottle_angle(new_pct))
+            old_pct = self._display_pct
+            self._display_pct = new_pct
+            self._start_anim(old_pct, new_pct)
         else:
             self._set_icon(0, 0)
 
@@ -799,61 +833,100 @@ class MyocUsageApp(rumps.App):
         self._anim_timer.start()
 
     def refresh_data(self, _):
+        if self._refresh_state == "busy":
+            return
+        self._refresh_state = "busy"
+        self._bg_usage = {}
+        self._bg_model_costs = []
+        self._bg_model_total = 0.0
+        self._bg_error = None
+        t = threading.Thread(target=self._refresh_bg, daemon=True)
+        t.start()
+        self._refresh_poll_timer = rumps.Timer(self._refresh_poll, 0.1)
+        self._refresh_poll_timer.start()
+
+    def _refresh_bg(self):
         try:
             data = make_api_request(self.config)
             self.last_raw_data = data
             if data is None:
-                self.title = "--"
-                self.last_error = "响应为空"
+                self._bg_error = "响应为空"
+                self._refresh_state = "done"
                 return
 
             debug_path = os.path.expanduser("~/.myocusage_latest.json")
             with open(debug_path, "w") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False, default=str)
 
-            self.usage_data = parse_usage(data)
-            self.last_error = None
-            self.error_item.hide()
-            # 模型用量
+            self._bg_usage = parse_usage(data)
             try:
-                self._model_costs, self._model_total = fetch_model_usage(self.config)
+                new_costs, new_total = fetch_model_usage(self.config)
+                if new_costs or new_total > 0:
+                    self._bg_model_costs, self._bg_model_total = new_costs, new_total
             except Exception as e2:
                 log.warning(f"模型用量请求失败: {e2}")
-            self._update_display()
-            log.info(f"刷新成功: {self.usage_data}")
+                self._bg_model_costs = self._model_costs
+                self._bg_model_total = self._model_total
+            self._bg_error = None
         except AuthExpiredError:
-            self.title = "🔒"
+            self._bg_error = "auth_expired"
+            log.warning("认证已过期")
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else "?"
+            self._bg_error = f"http_{status}"
+            log.error(f"API 错误: {e}")
+        except Exception as e:
+            self._bg_error = str(e)
+            log.error(f"刷新失败: {e}")
+        self._refresh_state = "done"
+
+    def _refresh_poll(self, _):
+        if self._refresh_state != "done":
+            return
+        if self._refresh_poll_timer:
+            self._refresh_poll_timer.stop()
+        if self._bg_error == "auth_expired":
+            self._set_ns_title("🔒")
             self.menu_items["monthly"].title = "认证过期，更新 config.json cookies"
             self.last_error = "认证过期"
             self.error_item.title = "⚠️ 认证已过期，请更新 cookies"
             self.error_item.show()
-            log.warning("认证已过期")
-        except requests.exceptions.HTTPError as e:
-            status = e.response.status_code if e.response is not None else "?"
-            if status in (401, 403):
-                self.title = "🔒"
+        elif self._bg_error and str(self._bg_error).startswith("http_"):
+            status = self._bg_error.split("_")[1]
+            if status in ("401", "403"):
+                self._set_ns_title("🔒")
                 self.menu_items["monthly"].title = "认证过期，更新 config.json cookies"
                 self.last_error = f"HTTP {status}"
                 self.error_item.title = f"⚠️ 认证失败 (HTTP {status})"
+                self.error_item.show()
             else:
-                self.title = "ERR"
-                self.last_error = str(e)
+                self._set_ns_title("ERR")
+                self.last_error = f"HTTP {status}"
                 self.error_item.title = f"⚠️ 请求错误: HTTP {status}"
+                self.error_item.show()
+        elif self._bg_error:
+            self._set_ns_title("ERR")
+            self.last_error = str(self._bg_error)
+            self.error_item.title = f"⚠️ {str(self._bg_error)[:40]}"
             self.error_item.show()
-            log.error(f"API 错误: {e}")
-        except Exception as e:
-            self.title = "ERR"
-            self.last_error = str(e)
-            self.error_item.title = f"⚠️ {str(e)[:40]}"
-            self.error_item.show()
-            log.error(f"刷新失败: {e}")
+        else:
+            self.usage_data = self._bg_usage
+            self._model_costs = self._bg_model_costs if self._bg_model_costs else self._model_costs
+            self._model_total = self._bg_model_total if self._bg_model_total > 0 else self._model_total
+            self.last_error = None
+            self.error_item.hide()
+            self._update_display()
+            log.info(f"刷新成功: {self.usage_data}")
+        self.refresh_item.title = "🔄 手动刷新"
+        self._manual_refreshing = False
+        self._refresh_state = None
 
     def manual_refresh(self, _):
+        if self._refresh_state == "busy":
+            return
         self.refresh_item.title = "🔄 刷新中..."
         self._manual_refreshing = True
         self.refresh_data(None)
-        self._manual_refreshing = False
-        self.refresh_item.title = "🔄 手动刷新"
 
     def open_update(self, _):
         subprocess.Popen(["open", "https://github.com/meineson/MyOCUsage"])
