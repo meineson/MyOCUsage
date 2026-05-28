@@ -612,7 +612,7 @@ class MyocUsageApp(rumps.App):
         self.refresh_item = rumps.MenuItem("🔄 手动刷新", callback=self.manual_refresh)
         self.menu.add(self.refresh_item)
         self.menu.add(rumps.separator)
-        self.menu.add(rumps.MenuItem("📥 自动更新", callback=self.check_update))
+        self.menu.add(rumps.MenuItem("📥 检查更新", callback=self.check_update))
         title = "✅ 开机自启" if _autostart_enabled() else "🔳 开机自启"
         self.autostart_item = rumps.MenuItem(title, callback=self.toggle_autostart)
         self.menu.add(self.autostart_item)
@@ -992,12 +992,12 @@ class MyocUsageApp(rumps.App):
         NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
         alert = NSAlert.alloc().init()
         alert.setMessageText_(f"发现新版本 {remote_ver}")
-        alert.setInformativeText_("是否自动更新并重启？")
-        alert.addButtonWithTitle_("更新")
+        alert.setInformativeText_("自动下载，更新后手动点击菜单重启生效")
+        alert.addButtonWithTitle_("下载")
         alert.addButtonWithTitle_("取消")
         r = alert.runModal()
         if r != NSAlertFirstButtonReturn:
-            sender.title = "📥 自动更新"
+            sender.title = "📥 检查更新"
             return
         new_path = SCRIPT_PATH + ".new"
         bak_path = SCRIPT_PATH + ".bak"
@@ -1010,9 +1010,9 @@ class MyocUsageApp(rumps.App):
             sender.title = "📥 更新失败"
             rumps.notification("自动更新", "更新失败", f"{e}")
             return
-        sender.title = "📥 已更新，点击重启"
+        sender.title = "📥 已下载，点击重启"
         self._pending_restart = True
-        rumps.notification("自动更新", "更新完成", f"已升级到 v{remote_ver}，点击菜单「📥 已更新，点击重启」重启")
+        rumps.notification("自动更新", "更新完成", f"已下载 v{remote_ver}，点击菜单「📥 已下载，点击重启」重启")
 
     def _restart_app(self):
         self._pending_restart = False
