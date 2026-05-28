@@ -23,6 +23,9 @@ from AppKit import (
     NSTextAlignmentRight, NSMakeRect, NSLineBreakByClipping,
     NSProgressIndicatorBarStyle,
     NSAlertFirstButtonReturn,
+    NSPanel, NSBorderlessWindowMask, NSFloatingWindowLevel,
+    NSBackingStoreBuffered, NSTitledWindowMask, NSClosableWindowMask,
+    NSMiniaturizableWindowMask,
 )
 from Foundation import NSData, NSAttributedString, NSMutableAttributedString, NSMutableParagraphStyle, NSTextTab
 
@@ -30,7 +33,7 @@ import warnings
 import threading
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.17"
+VERSION = "0.1.18"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -519,6 +522,123 @@ def _render_pie_image(cost_list, total):
     data = NSData.dataWithBytes_length_(buf.getvalue(), len(buf.getvalue()))
     return NSImage.alloc().initWithData_(data)
 
+
+# ── 浮动窗口 ──────────────────────────────────────────
+
+FLOAT_W = 220
+FLOAT_H = 100
+FLOAT_ROW_H = 26
+FLOAT_BAR_W = 100
+FLOAT_BAR_H = 10
+
+
+class FloatingWindow:
+    def __init__(self):
+        style = NSTitledWindowMask | 32768  # NSFullSizeContentViewWindowMask
+        from AppKit import NSScreen
+        screen = NSScreen.mainScreen().frame()
+        cx = (screen.size.width - FLOAT_W) / 2
+        cy = (screen.size.height - FLOAT_H) / 2
+        self.panel = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(cx, cy, FLOAT_W, FLOAT_H),
+            style,
+            NSBackingStoreBuffered,
+            False
+        )
+        self.panel.setLevel_(NSFloatingWindowLevel)
+        self.panel.setOpaque_(True)
+        self.panel.setBackgroundColor_(NSColor.colorWithCalibratedRed_green_blue_alpha_(
+            0.15, 0.15, 0.15, 0.95))
+        self.panel.setHasShadow_(True)
+        self.panel.setTitlebarAppearsTransparent_(True)
+        self.panel.setTitleVisibility_(1)  # NSWindowTitleHidden
+        self.panel.setMovableByWindowBackground_(True)
+        self.panel.setBecomesKeyOnlyIfNeeded_(False)
+        self.panel.setHidesOnDeactivate_(False)
+        self.panel.setCollectionBehavior_(2)
+
+        content = self.panel.contentView()
+        content.setWantsLayer_(True)
+
+        title_label = NSTextField.alloc().initWithFrame_(NSMakeRect(10, FLOAT_H - 20, 200, 16))
+        title_label.setBordered_(False)
+        title_label.setDrawsBackground_(False)
+        title_label.setEditable_(False)
+        title_label.setSelectable_(False)
+        title_label.setFont_(NSFont.boldSystemFontOfSize_(11))
+        title_label.setTextColor_(NSColor.whiteColor())
+        title_label.setStringValue_("MyOCUsage")
+        content.addSubview_(title_label)
+
+        self._bars = {}
+        labels = [("5h", "5小时"), ("weekly", "本周"), ("monthly", "本月")]
+        for i, (key, label_text) in enumerate(labels):
+            y = FLOAT_H - 46 - i * 22
+
+            label = NSTextField.alloc().initWithFrame_(NSMakeRect(8, y, 44, 16))
+            label.setBordered_(False)
+            label.setDrawsBackground_(False)
+            label.setEditable_(False)
+            label.setSelectable_(False)
+            label.setFont_(NSFont.boldSystemFontOfSize_(11))
+            label.setTextColor_(NSColor.whiteColor())
+            label.setStringValue_(label_text)
+            content.addSubview_(label)
+
+            bar = NSProgressIndicator.alloc().initWithFrame_(NSMakeRect(
+                56, y + 2, FLOAT_BAR_W, FLOAT_BAR_H))
+            bar.setStyle_(NSProgressIndicatorBarStyle)
+            bar.setIndeterminate_(False)
+            bar.setMinValue_(0)
+            bar.setMaxValue_(100)
+            bar.setDoubleValue_(0)
+            bar.setDisplayedWhenStopped_(True)
+            content.addSubview_(bar)
+
+            pct = NSTextField.alloc().initWithFrame_(NSMakeRect(162, y, 50, 16))
+            pct.setBordered_(False)
+            pct.setDrawsBackground_(False)
+            pct.setEditable_(False)
+            pct.setSelectable_(False)
+            pct.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(11, 0.4))
+            pct.setTextColor_(NSColor.whiteColor())
+            pct.setAlignment_(NSTextAlignmentRight)
+            pct.setStringValue_("--")
+            content.addSubview_(pct)
+
+            self._bars[key] = {"bar": bar, "pct": pct}
+
+    def show(self):
+        self.panel.orderFrontRegardless()
+
+    def hide(self):
+        self.panel.orderOut_(None)
+
+    def isVisible(self):
+        return self.panel.isVisible()
+
+    def toggle(self):
+        if self.isVisible():
+            self.hide()
+        else:
+            self.show()
+
+    def update(self, usage_data):
+        for period, views in self._bars.items():
+            entry = usage_data.get(period)
+            bar = views["bar"]
+            pct = views["pct"]
+            if entry and entry["used"] is not None:
+                used = entry["used"]
+                limit = entry.get("limit")
+                p = used / limit * 100 if limit else used
+                bar.setDoubleValue_(p)
+                pct.setStringValue_(f"{p:.0f}%")
+            else:
+                bar.setDoubleValue_(0)
+                pct.setStringValue_("--")
+
+
 class MyocUsageApp(rumps.App):
     def __init__(self):
         super().__init__("", title="", quit_button=rumps.MenuItem("❌ 退出", callback=self.quit_app))
@@ -542,6 +662,7 @@ class MyocUsageApp(rumps.App):
         self._bg_model_costs = []
         self._bg_model_total = 0.0
         self._bg_error = None
+        self._floating = None
 
         self._period_views = {}
         self.menu_items = {}
@@ -616,6 +737,8 @@ class MyocUsageApp(rumps.App):
         title = "✅ 开机自启" if _autostart_enabled() else "🔳 开机自启"
         self.autostart_item = rumps.MenuItem(title, callback=self.toggle_autostart)
         self.menu.add(self.autostart_item)
+        self.float_item = rumps.MenuItem("🔼 显示浮动窗", callback=self.toggle_floating)
+        self.menu.add(self.float_item)
 
         self.refresh_data(None)
         interval = self.config.get("refresh_interval", 300)
@@ -766,6 +889,10 @@ class MyocUsageApp(rumps.App):
                 v["bar"].setDoubleValue_(0)
                 v["pct"].setStringValue_("--")
                 v["reset"].setStringValue_("")
+
+        # 更新浮动窗口
+        if self._floating and self._floating.isVisible():
+            self._floating.update(self.usage_data)
 
         # 瓶子图标（每次刷新都转一圈）
         candidates2 = [(e["used"], e) for e in (hourly, weekly, monthly) if e and e["used"] is not None]
@@ -1043,10 +1170,26 @@ class MyocUsageApp(rumps.App):
             _install_launchd()
             self.autostart_item.title = "✅ 开机自启"
 
+    def toggle_floating(self, _):
+        if not self._floating:
+            try:
+                self._floating = FloatingWindow()
+            except Exception as e:
+                log.error(f"浮动窗口创建失败: {e}")
+                return
+        self._floating.toggle()
+        if self._floating.isVisible():
+            self._floating.update(self.usage_data)
+            self.float_item.title = "🔽 隐藏浮动窗"
+        else:
+            self.float_item.title = "🔼 显示浮动窗"
+
     def quit_app(self, _):
         self._stop_anim()
         if self.refresh_timer:
             self.refresh_timer.stop()
+        if self._floating:
+            self._floating.hide()
         if os.path.exists(ICON_FILE):
             os.unlink(ICON_FILE)
         PID_FILE = os.path.expanduser("~/.myocusage.pid")
