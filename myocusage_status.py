@@ -26,14 +26,18 @@ from AppKit import (
     NSPanel, NSBorderlessWindowMask, NSFloatingWindowLevel,
     NSBackingStoreBuffered, NSTitledWindowMask, NSClosableWindowMask,
     NSMiniaturizableWindowMask,
+    NSButton, NSRoundedBezelStyle,
 )
-from Foundation import NSData, NSAttributedString, NSMutableAttributedString, NSMutableParagraphStyle, NSTextTab
+from Foundation import (
+    NSData, NSAttributedString, NSMutableAttributedString,
+    NSMutableParagraphStyle, NSTextTab, NSObject,
+)
 
 import warnings
 import threading
 warnings.filterwarnings("ignore", message=".*urllib3.*")
 
-VERSION = "0.1.18"
+VERSION = "0.1.19"
 _VERSION_URL = "https://api.github.com/repos/meineson/MyOCUsage/contents/myocusage_status.py"
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -275,13 +279,12 @@ def _autostart_enabled():
     return os.path.exists(PLIST_PATH)
 
 
-# ── 动态瓶子图标 ─────────────────────────────────
+# ── 动态瓶杯图标（🍶德利+おちょこ）───────────────
 
 _LIQUID_COLORS = [
-    (30,  (60, 130, 220)),    # 蓝
-    (60,  (245, 166, 35)),    # 橙
-    (80,  (245, 124, 0)),     # 深橙
-    (100, (229, 57, 53)),     # 红
+    (30,  (229, 57, 53)),     # 红：剩余≤30%
+    (60,  (245, 166, 35)),    # 橙：剩余≤60%
+    (100, (60, 130, 220)),    # 蓝：剩余≤100%
 ]
 
 
@@ -292,124 +295,97 @@ def _liquid_color(pct):
     return _LIQUID_COLORS[-1][1]
 
 
-def _bottle_angle(pct):
-    return pct / 100 * 20
+S_CANVAS = 88
 
 
-def _render_bottle(usage_pct, angle=0):
-    """魔法药水瓶图标 — 大肚子圆身造型"""
-    S = 512
-
-    body_w = int(S * 0.68)
-    body_w = body_w if body_w % 2 == 0 else body_w + 1
-    body_h = body_w
-    cork_h = 20
-    neck_h = 42
-    
-    cork_y = S - body_h - cork_h - neck_h
-    neck_y = cork_y + cork_h
-    body_y = neck_y + neck_h
-
-    body_x = (S - body_w) // 2
-    neck_w = int(body_w * 0.24)
-    neck_x = (S - neck_w) // 2
-    cork_w = neck_w + int(neck_w * 0.25)
-    cork_x = (S - cork_w) // 2
-
-    def _draw_sparkle(d, cx, cy, r, color):
-        pts = []
-        for i in range(8):
-            a = math.pi * 2 * i / 8 - math.pi / 2
-            rr = r if i % 2 == 0 else r * 0.35
-            pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
-        d.polygon(pts, fill=color)
-
+def _render_icon(weekly_rem, fiveh_rem, angle=0):
+    """绘制德利（本周剩余）+ 小杯（5h剩余）"""
+    S = S_CANVAS
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
 
-    glass = (180, 180, 180)
-
-    # 软木塞
-    draw.rounded_rectangle([cork_x, cork_y, cork_x + cork_w, cork_y + cork_h],
-                           radius=4, fill=(160, 120, 80), outline=(130, 95, 55))
-
+    # ── 德利瓶（右侧）──
+    bcx = 52
+    body_rx, body_ry = 18, 24
+    body_top = 30
+    body_bot = body_top + body_ry * 2
     # 瓶颈
-    draw.rectangle([neck_x, neck_y, neck_x + neck_w, body_y],
-                   fill=(240, 240, 240), outline=glass, width=3)
+    neck_w, neck_h = 10, 8
+    neck_x0 = bcx - neck_w // 2
+    neck_y0 = body_top - neck_h
+    # 瓶口
+    rim_w, rim_h = 16, 4
+    rim_x0 = bcx - rim_w // 2
+    rim_y0 = neck_y0 - rim_h
 
-    body_r = int(body_w * 0.45)
-    bb = (body_x, body_y, body_x + body_w, body_y + body_h)
-    draw.rounded_rectangle(bb, radius=body_r, outline=glass, width=4)
+    draw = ImageDraw.Draw(img)
+    draw.ellipse([bcx - body_rx, body_top, bcx + body_rx, body_bot],
+                 fill=(235, 235, 235), outline=(180, 180, 180), width=2)
+    draw.rectangle([neck_x0, neck_y0, neck_x0 + neck_w, body_top],
+                   fill=(235, 235, 235), outline=(180, 180, 180), width=2)
+    draw.rounded_rectangle([rim_x0, rim_y0, rim_x0 + rim_w, neck_y0],
+                           radius=2, fill=(210, 210, 210), outline=(180, 180, 180))
 
-    # 瓶身填充
-    bmask = Image.new("L", (S, S), 0)
-    ImageDraw.Draw(bmask).rounded_rectangle(bb, radius=body_r, fill=255)
-    bg = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    ImageDraw.Draw(bg).rounded_rectangle(bb, radius=body_r, fill=(240, 240, 240))
-    img = Image.alpha_composite(img, Image.composite(bg, Image.new("RGBA", (S, S), (0, 0, 0, 0)), bmask))
-
-    # 瓶内液体
-    liquid_h = int(body_h * (100 - usage_pct) / 100)
-    if liquid_h > 0:
-        color = _liquid_color(usage_pct)
+    # 瓶身液体
+    if weekly_rem > 0:
+        col = _liquid_color(weekly_rem)
+        liq_h = int(body_ry * 2 * weekly_rem / 100)
+        liq_top = body_bot - liq_h
         mask = Image.new("L", (S, S), 0)
         md = ImageDraw.Draw(mask)
-        md.rounded_rectangle(bb, radius=body_r, fill=255)
-        md.rectangle([body_x, body_y + body_h - liquid_h, body_x + body_w, body_y + body_h], fill=255)
+        md.ellipse([bcx - body_rx, body_top, bcx + body_rx, body_bot], fill=255)
+        md.rectangle([0, 0, S, liq_top], fill=0)
 
         layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-        ImageDraw.Draw(layer).rounded_rectangle(
-            [body_x + 6, body_y + body_h - liquid_h, body_x + body_w - 6, body_y + body_h - 4],
-            radius=int(body_r * 0.8), fill=color)
-        img = Image.alpha_composite(
-            img,
-            Image.composite(layer, Image.new("RGBA", (S, S), (0, 0, 0, 0)), mask),
-        )
-        # 魔法气泡
-        if liquid_h > 30:
-            bubble = ImageDraw.Draw(img)
-            for bx, by in [(body_x + body_w // 3, body_y + body_h - liquid_h + 20),
-                           (body_x + body_w * 2 // 3, body_y + body_h - liquid_h + 45)]:
-                bubble.ellipse([bx - 3, by - 3, bx + 3, by + 3],
-                               fill=(255, 255, 255, 100))
+        ld = ImageDraw.Draw(layer)
+        ld.ellipse([bcx - body_rx + 2, body_top + 2, bcx + body_rx - 2, body_bot - 2],
+                   fill=col)
+        layer = Image.composite(layer, Image.new("RGBA", (S, S), (0, 0, 0, 0)), mask)
+        img = Image.alpha_composite(img, layer)
 
-    # 高光白点
+        if liq_top > body_top:
+            light = (min(col[0] + 60, 255), min(col[1] + 60, 255), min(col[2] + 60, 255))
+            draw = ImageDraw.Draw(img)
+            for dx in range(-int(body_rx * 0.85), int(body_rx * 0.85)):
+                nx = bcx + dx
+                dy = liq_top - (body_top + body_ry)
+                if (dx ** 2) / (body_rx ** 2) + (dy ** 2) / (body_ry ** 2) <= 1:
+                    draw.rectangle([nx, liq_top, nx, liq_top + 1], fill=light)
+
+    # 瓶身高光
     draw = ImageDraw.Draw(img)
-    hx = body_x + body_w * 0.10
-    for dy in [body_h * 0.20, body_h * 0.38, body_h * 0.56]:
-        r = int(body_w * 0.025)
-        draw.ellipse([int(hx - r), int(body_y + dy - r),
-                      int(hx + r), int(body_y + dy + r)],
-                     fill=(255, 255, 255, 60))
+    draw.ellipse([bcx - body_rx + 5, body_top + 8, bcx - body_rx + 6, body_bot - 10],
+                 fill=(255, 255, 255, 50))
 
-    # 瓶底
-    base_h = int(body_h * 0.04)
+    # ── 小杯（左侧下方）──
+    ccx = 24
+    cup_y0 = body_bot - 28
+    cup_w_top, cup_w_bot, cup_h = 20, 14, 18
+
+    draw.polygon([
+        (ccx - cup_w_top // 2, cup_y0),
+        (ccx + cup_w_top // 2, cup_y0),
+        (ccx + cup_w_bot // 2, cup_y0 + cup_h),
+        (ccx - cup_w_bot // 2, cup_y0 + cup_h),
+    ], fill=(235, 235, 235), outline=(180, 180, 180), width=2)
+    draw.rectangle([ccx - cup_w_top // 2 - 1, cup_y0 - 1, ccx + cup_w_top // 2 + 1, cup_y0 + 1],
+                   fill=(180, 180, 180))
     draw.rounded_rectangle(
-        [body_x + 6, body_y + body_h - base_h, body_x + body_w - 6, body_y + body_h],
-        radius=4, fill=(200, 200, 200), outline=glass)
+        [ccx - cup_w_bot // 2 - 1, cup_y0 + cup_h - 2, ccx + cup_w_bot // 2 + 1, cup_y0 + cup_h + 1],
+        radius=1, fill=(180, 180, 180))
 
-    # 瓶口喷发粒子
-    origin_x = neck_x + neck_w // 2
-    origin_y = neck_y
-    for i in range(28):
-        a = math.radians(-75 + (i % 7) * 25)
-        d = 15 + (i // 7) * 22
-        px = origin_x + int(d * math.cos(a))
-        py = origin_y + int(d * math.sin(a))
-        r = 2 + (i % 4)
-        bright = 180 + (i % 4) * 20
-        draw.ellipse([px - r, py - r, px + r, py + r],
-                     fill=(255, bright + 20, bright, 200 - i * 4))
-    # 大星芒喷口
-    _draw_sparkle(draw, origin_x, origin_y - 6, 14, (255, 230, 100))
-    _draw_sparkle(draw, origin_x, origin_y - 6, 8, (255, 255, 240))
+    if fiveh_rem > 0:
+        col = _liquid_color(fiveh_rem)
+        cup_liq_h = int(cup_h * fiveh_rem / 100)
+        cup_liq_top = cup_y0 + cup_h - cup_liq_h
+        for y in range(cup_liq_top, cup_y0 + cup_h):
+            t = (y - cup_y0) / cup_h
+            half_w = int(cup_w_top // 2 - 1 - t * (cup_w_top - cup_w_bot) // 2)
+            draw.rectangle([ccx - half_w, y, ccx + half_w, y], fill=col)
+        light = (min(col[0] + 60, 255), min(col[1] + 60, 255), min(col[2] + 60, 255))
+        t = (cup_liq_top - cup_y0) / cup_h
+        half_w = int(cup_w_top // 2 - 1 - t * (cup_w_top - cup_w_bot) // 2)
+        draw.rectangle([ccx - half_w, cup_liq_top, ccx + half_w, cup_liq_top + 1], fill=light)
 
-    sparkle = (255, 235, 150)
-    _draw_sparkle(draw, body_x - 15, body_y + body_h // 3, 8, sparkle)
-    _draw_sparkle(draw, body_x + body_w + 15, body_y + body_h * 2 // 3, 7, sparkle)
-    _draw_sparkle(draw, S // 2, cork_y - 8, 5, sparkle)
-
-    # 旋转
     if angle != 0:
         img = img.rotate(angle, expand=True, fillcolor=(0, 0, 0, 0), resample=Image.BICUBIC)
         w, h = img.size
@@ -420,8 +396,8 @@ def _render_bottle(usage_pct, angle=0):
     img.save(ICON_FILE, "PNG")
 
 
-def _apply_icon(app, pct, angle):
-    _render_bottle(pct, angle)
+def _apply_icon(app, weekly_rem, fiveh_rem, angle):
+    _render_icon(weekly_rem, fiveh_rem, angle)
     app.icon = ICON_FILE
     try:
         btn = app._ns_status_bar_button
@@ -570,6 +546,20 @@ class FloatingWindow:
         title_label.setStringValue_("MyOCUsage")
         content.addSubview_(title_label)
 
+        # 关闭按钮
+        close_btn = NSButton.alloc().initWithFrame_(NSMakeRect(FLOAT_W - 22, FLOAT_H - 22, 16, 16))
+        close_btn.setBezelStyle_(NSRoundedBezelStyle)
+        close_btn.setBordered_(False)
+        close_btn.setTitle_("✕")
+        close_btn.setFont_(NSFont.boldSystemFontOfSize_(11))
+        close_btn.setTarget_(self.panel)
+        close_btn.setAction_("orderOut:")
+        attr = NSAttributedString.alloc().initWithString_attributes_(
+            "✕", {NSForegroundColorAttributeName: NSColor.grayColor(),
+                  NSFontAttributeName: NSFont.boldSystemFontOfSize_(11)})
+        close_btn.setAttributedTitle_(attr)
+        content.addSubview_(close_btn)
+
         self._bars = {}
         labels = [("5h", "5小时"), ("weekly", "本周"), ("monthly", "本月")]
         for i, (key, label_text) in enumerate(labels):
@@ -648,13 +638,13 @@ class MyocUsageApp(rumps.App):
         self.last_raw_data = None
         self.refresh_timer = None
 
-        self._prev_display_pct = 0
-        self._display_pct = 0
+        self._display_weekly = 0
+        self._display_fiveh = 0
         self._anim_timer = None
         self._anim_frames = []
         self._anim_idx = 0
-        self._manual_refreshing = False
         self._update_timer = None
+        self._float_sync_timer = None
         self._pending_restart = False
         self._refresh_state = None
         self._refresh_poll_timer = None
@@ -744,21 +734,28 @@ class MyocUsageApp(rumps.App):
         interval = self.config.get("refresh_interval", 300)
         self.refresh_timer = rumps.Timer(self.refresh_data, interval)
         self.refresh_timer.start()
+        self._float_sync_timer = rumps.Timer(self._sync_float_menu, 0.5)
+        self._float_sync_timer.start()
         log.info("MyocUsage 已启动")
 
-    def _set_ns_title(self, text, font_size=10):
-        rumps.App.title.fset(self, text)
-        btn = getattr(self, '_ns_status_bar_button', None)
-        if btn:
-            attr = NSAttributedString.alloc().initWithString_attributes_(
-                text, {NSFontAttributeName: NSFont.menuBarFontOfSize_(font_size),
-                       NSBaselineOffsetAttributeName: -4})
-            btn.setAttributedTitle_(attr)
+    def _set_ns_title(self, text, emoji="", font_size=11):
+        rumps.App.title.fset(self, text + emoji)
+        if emoji:
+            attr = NSMutableAttributedString.alloc().init()
+            text_part = NSAttributedString.alloc().initWithString_attributes_(
+                text, {NSFontAttributeName: NSFont.menuBarFontOfSize_(font_size)})
+            emoji_part = NSAttributedString.alloc().initWithString_attributes_(
+                emoji, {NSFontAttributeName: NSFont.menuBarFontOfSize_(font_size // 2)})
+            attr.appendAttributedString_(text_part)
+            attr.appendAttributedString_(emoji_part)
+            btn = getattr(self, '_ns_status_bar_button', None)
+            if btn:
+                btn.setAttributedTitle_(attr)
 
     # ── 图标动画 ──
 
-    def _set_icon(self, pct, angle):
-        _apply_icon(self, pct, angle)
+    def _set_icon(self, weekly_rem, fiveh_rem, angle):
+        _apply_icon(self, weekly_rem, fiveh_rem, angle)
 
     def _stop_anim(self):
         if self._anim_timer:
@@ -766,7 +763,6 @@ class MyocUsageApp(rumps.App):
         self._anim_timer = None
         self._anim_frames = []
         self._anim_idx = 0
-        self._manual_refreshing = False
         if self._refresh_poll_timer:
             self._refresh_poll_timer.stop()
             self._refresh_poll_timer = None
@@ -776,58 +772,23 @@ class MyocUsageApp(rumps.App):
         if self._anim_idx >= len(self._anim_frames):
             self._stop_anim()
             # Final frame — stable icon
-            self._set_icon(self._display_pct, _bottle_angle(self._display_pct))
+            self._set_icon(self._display_weekly, self._display_fiveh, 0)
             return
         angle = self._anim_frames[self._anim_idx]
-        self._set_icon(self._display_pct, angle)
+        self._set_icon(self._display_weekly, self._display_fiveh, angle)
         self._anim_idx += 1
 
-    def _start_anim(self, from_pct, to_pct, n=10):
+    def _start_anim(self, weekly_rem, fiveh_rem):
         self._stop_anim()
-        from_a = _bottle_angle(from_pct)
-        to_a = _bottle_angle(to_pct)
-        diff_pct = abs(to_pct - from_pct)
-        is_reset = diff_pct >= 30
-
+        self._display_weekly = weekly_rem
+        self._display_fiveh = fiveh_rem
         frames = []
-        # 每次刷新转一圈
-        spin_frames = 12
-        for i in range(spin_frames):
-            t = i / max(spin_frames - 1, 1)
-            ease = t * t * (3 - 2 * t)
-            angle = from_a + 360 * ease
-            frames.append(angle)
-
-        if is_reset:
-            # 重置：先回正 → 过冲 → 摇晃站稳
-            for i in range(n):
-                t = i / max(n - 1, 1)
-                if t < 0.4:
-                    t2 = t / 0.4
-                    ease = t2 * t2 * (3 - 2 * t2)  # smoothstep
-                    angle = from_a + (to_a - from_a) * ease * 0.8
-                    angle += (1 - t2) * 10  # 前半程附加摇晃
-                else:
-                    t2 = (t - 0.4) / 0.6
-                    decay = 1 - t2 * 0.85
-                    wobble = 7 * decay * math.sin(t2 * 5 * math.pi)
-                    angle = to_a + wobble
-                frames.append(angle)
-        else:
-            # 小幅升降 → 过冲回弹（最小过冲幅度 2°）
-            min_overshoot = 2.0
-            overshoot = max(abs(to_a - from_a), min_overshoot)
-            for i in range(n):
-                t = i / max(n - 1, 1)
-                c1, c3 = 1.70158, 2.70158
-                ease = 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2
-                angle = from_a + (to_a - from_a) * ease
-                if t < 0.5 and overshoot > abs(to_a - from_a):
-                    t2 = t / 0.5
-                    extra = (overshoot - abs(to_a - from_a)) * math.sin(t2 * math.pi)
-                    angle += extra if to_a >= from_a else -extra
-                frames.append(angle)
-
+        for i in range(8):
+            t = i / 7
+            decay = 1 - t * 0.75
+            wobble = 6 * decay * math.sin(t * 5 * math.pi)
+            frames.append(wobble)
+        frames.append(0)
         self._anim_frames = frames
         self._anim_idx = 0
         self._anim_timer = rumps.Timer(self._anim_tick, 0.04)
@@ -835,7 +796,7 @@ class MyocUsageApp(rumps.App):
 
     # ── 显示更新 ──
 
-    def _update_display(self, force_shake=False):
+    def _update_display(self):
         monthly = self.usage_data.get("monthly")
         weekly = self.usage_data.get("weekly")
         hourly = self.usage_data.get("5h")
@@ -866,7 +827,7 @@ class MyocUsageApp(rumps.App):
                             emoji = "😐"
                         else:
                             emoji = "😰"
-            self._set_ns_title(f"{best_pct:.0f}% | {hourly_pct_val:.0f}%{emoji}")
+            self._set_ns_title(f"{best_pct:.0f}%", emoji)
         else:
             self._set_ns_title("--")
 
@@ -894,18 +855,20 @@ class MyocUsageApp(rumps.App):
         if self._floating and self._floating.isVisible():
             self._floating.update(self.usage_data)
 
-        # 瓶子图标（每次刷新都转一圈）
-        candidates2 = [(e["used"], e) for e in (hourly, weekly, monthly) if e and e["used"] is not None]
-        if candidates2:
-            _, best = max(candidates2, key=lambda x: x[0])
-            used = best["used"]
-            limit = best.get("limit")
-            new_pct = used / limit * 100 if limit else used
-            old_pct = self._display_pct
-            self._display_pct = new_pct
-            self._start_anim(old_pct, new_pct)
+        # 瓶子+小杯图标（德利=本周剩余，小杯=5h剩余）
+        w_entry = self.usage_data.get("weekly")
+        f_entry = self.usage_data.get("5h")
+        if w_entry and w_entry["used"] is not None:
+            w_pct = w_entry["used"] / w_entry.get("limit") * 100 if w_entry.get("limit") else w_entry["used"]
+            weekly_rem = max(0, 100 - w_pct)
         else:
-            self._set_icon(0, 0)
+            weekly_rem = 100
+        if f_entry and f_entry["used"] is not None:
+            f_pct = f_entry["used"] / f_entry.get("limit") * 100 if f_entry.get("limit") else f_entry["used"]
+            fiveh_rem = max(0, 100 - f_pct)
+        else:
+            fiveh_rem = 100
+        self._start_anim(weekly_rem, fiveh_rem)
 
         # 更新饼图
         if len(self._model_costs) > MAX_MODELS:
@@ -943,21 +906,7 @@ class MyocUsageApp(rumps.App):
         else:
             self._pie_title.setStringValue_("当月模型用量")
 
-    def _shake_anim(self, pct):
-        """手动刷新时的摇晃"""
-        self._stop_anim()
-        cur_a = _bottle_angle(pct)
-        frames = []
-        for i in range(10):
-            t = i / 9
-            decay = 1 - t * 0.75
-            wobble = 5 * decay * math.sin(t * 5 * math.pi)
-            frames.append(cur_a + wobble)
-        self._display_pct = pct
-        self._anim_frames = frames
-        self._anim_idx = 0
-        self._anim_timer = rumps.Timer(self._anim_tick, 0.04)
-        self._anim_timer.start()
+
 
     def refresh_data(self, _):
         if self._refresh_state == "busy":
@@ -1045,14 +994,12 @@ class MyocUsageApp(rumps.App):
             self._update_display()
             log.info(f"刷新成功: {self.usage_data}")
         self.refresh_item.title = "🔄 手动刷新"
-        self._manual_refreshing = False
         self._refresh_state = None
 
     def manual_refresh(self, _):
         if self._refresh_state == "busy":
             return
         self.refresh_item.title = "🔄 刷新中..."
-        self._manual_refreshing = True
         self.refresh_data(None)
 
     def open_update(self, _):
@@ -1184,10 +1131,16 @@ class MyocUsageApp(rumps.App):
         else:
             self.float_item.title = "🔼 显示浮动窗"
 
+    def _sync_float_menu(self, _=None):
+        if self._floating and not self._floating.isVisible():
+            self.float_item.title = "🔼 显示浮动窗"
+
     def quit_app(self, _):
         self._stop_anim()
         if self.refresh_timer:
             self.refresh_timer.stop()
+        if self._float_sync_timer:
+            self._float_sync_timer.stop()
         if self._floating:
             self._floating.hide()
         if os.path.exists(ICON_FILE):
