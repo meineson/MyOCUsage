@@ -2,6 +2,7 @@ config.json
 __pycache__/
 *.pyc
 *.log
+*.bak
 myocusage_latest.json
 myocusage_response.txt
 *.screenshot.png
