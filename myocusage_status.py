@@ -279,13 +279,15 @@ def _autostart_enabled():
     return os.path.exists(PLIST_PATH)
 
 
-# ── 动态瓶杯图标（🍶德利+おちょこ）───────────────
+# ── 动态瓶杯图标（🍶emoji底图 + 液位着色）───────────
 
 _LIQUID_COLORS = [
     (30,  (229, 57, 53)),     # 红：剩余≤30%
     (60,  (245, 166, 35)),    # 橙：剩余≤60%
     (100, (60, 130, 220)),    # 蓝：剩余≤100%
 ]
+
+_EMOJI_CACHE = os.path.join(SCRIPT_DIR, "icon.png")
 
 
 def _liquid_color(pct):
@@ -295,96 +297,51 @@ def _liquid_color(pct):
     return _LIQUID_COLORS[-1][1]
 
 
-S_CANVAS = 88
+def _tint_emoji(base_arr, pct, col, y_start, y_end):
+    """用 numpy 对指定行范围着色（原图 60% + 液体色 40%）"""
+    if pct <= 0 or y_start >= y_end:
+        return
+    import numpy as np
+    h, w = base_arr.shape[:2]
+    y_start = max(0, min(h, y_start))
+    y_end = max(0, min(h, y_end))
+    region = base_arr[y_start:y_end]
+    opaque = region[:, :, 3] > 30
+    blend = 0.4
+    col_f = col[:3]
+    region[opaque, 0] = (region[opaque, 0] * (1 - blend) + col_f[0] * blend).astype(np.uint8)
+    region[opaque, 1] = (region[opaque, 1] * (1 - blend) + col_f[1] * blend).astype(np.uint8)
+    region[opaque, 2] = (region[opaque, 2] * (1 - blend) + col_f[2] * blend).astype(np.uint8)
 
 
 def _render_icon(weekly_rem, fiveh_rem, angle=0):
-    """绘制德利（本周剩余）+ 小杯（5h剩余）"""
-    S = S_CANVAS
-    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    """基于 emoji 底图 + 液位着色"""
+    import numpy as np
+    try:
+        emoji = Image.open(_EMOJI_CACHE).convert("RGBA")
+    except Exception:
+        emoji = Image.new("RGBA", (88, 88), (0, 0, 0, 0))
+    emoji = emoji.resize((88, 88), Image.LANCZOS)
 
-    # ── 德利瓶（右侧）──
-    bcx = 52
-    body_rx, body_ry = 18, 24
-    body_top = 30
-    body_bot = body_top + body_ry * 2
-    # 瓶颈
-    neck_w, neck_h = 10, 8
-    neck_x0 = bcx - neck_w // 2
-    neck_y0 = body_top - neck_h
-    # 瓶口
-    rim_w, rim_h = 16, 4
-    rim_x0 = bcx - rim_w // 2
-    rim_y0 = neck_y0 - rim_h
+    arr = np.array(emoji, dtype=np.uint8)
 
-    draw = ImageDraw.Draw(img)
-    draw.ellipse([bcx - body_rx, body_top, bcx + body_rx, body_bot],
-                 fill=(235, 235, 235), outline=(180, 180, 180), width=2)
-    draw.rectangle([neck_x0, neck_y0, neck_x0 + neck_w, body_top],
-                   fill=(235, 235, 235), outline=(180, 180, 180), width=2)
-    draw.rounded_rectangle([rim_x0, rim_y0, rim_x0 + rim_w, neck_y0],
-                           radius=2, fill=(210, 210, 210), outline=(180, 180, 180))
-
-    # 瓶身液体
+    # 瓶身区域（emoji 右半部分，大约 x:40-88, y:0-80）
+    # 杯子区域（emoji 左半部分，大约 x:0-40, y:30-80）
     if weekly_rem > 0:
         col = _liquid_color(weekly_rem)
-        liq_h = int(body_ry * 2 * weekly_rem / 100)
-        liq_top = body_bot - liq_h
-        mask = Image.new("L", (S, S), 0)
-        md = ImageDraw.Draw(mask)
-        md.ellipse([bcx - body_rx, body_top, bcx + body_rx, body_bot], fill=255)
-        md.rectangle([0, 0, S, liq_top], fill=0)
-
-        layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-        ld = ImageDraw.Draw(layer)
-        ld.ellipse([bcx - body_rx + 2, body_top + 2, bcx + body_rx - 2, body_bot - 2],
-                   fill=col)
-        layer = Image.composite(layer, Image.new("RGBA", (S, S), (0, 0, 0, 0)), mask)
-        img = Image.alpha_composite(img, layer)
-
-        if liq_top > body_top:
-            light = (min(col[0] + 60, 255), min(col[1] + 60, 255), min(col[2] + 60, 255))
-            draw = ImageDraw.Draw(img)
-            for dx in range(-int(body_rx * 0.85), int(body_rx * 0.85)):
-                nx = bcx + dx
-                dy = liq_top - (body_top + body_ry)
-                if (dx ** 2) / (body_rx ** 2) + (dy ** 2) / (body_ry ** 2) <= 1:
-                    draw.rectangle([nx, liq_top, nx, liq_top + 1], fill=light)
-
-    # 瓶身高光
-    draw = ImageDraw.Draw(img)
-    draw.ellipse([bcx - body_rx + 5, body_top + 8, bcx - body_rx + 6, body_bot - 10],
-                 fill=(255, 255, 255, 50))
-
-    # ── 小杯（左侧下方）──
-    ccx = 24
-    cup_y0 = body_bot - 28
-    cup_w_top, cup_w_bot, cup_h = 20, 14, 18
-
-    draw.polygon([
-        (ccx - cup_w_top // 2, cup_y0),
-        (ccx + cup_w_top // 2, cup_y0),
-        (ccx + cup_w_bot // 2, cup_y0 + cup_h),
-        (ccx - cup_w_bot // 2, cup_y0 + cup_h),
-    ], fill=(235, 235, 235), outline=(180, 180, 180), width=2)
-    draw.rectangle([ccx - cup_w_top // 2 - 1, cup_y0 - 1, ccx + cup_w_top // 2 + 1, cup_y0 + 1],
-                   fill=(180, 180, 180))
-    draw.rounded_rectangle(
-        [ccx - cup_w_bot // 2 - 1, cup_y0 + cup_h - 2, ccx + cup_w_bot // 2 + 1, cup_y0 + cup_h + 1],
-        radius=1, fill=(180, 180, 180))
+        bottle_top = int(88 * 0.15)
+        bottle_bot = int(88 * 0.85)
+        liq_h = int((bottle_bot - bottle_top) * weekly_rem / 100)
+        _tint_emoji(arr, weekly_rem, col, bottle_bot - liq_h, bottle_bot)
 
     if fiveh_rem > 0:
         col = _liquid_color(fiveh_rem)
-        cup_liq_h = int(cup_h * fiveh_rem / 100)
-        cup_liq_top = cup_y0 + cup_h - cup_liq_h
-        for y in range(cup_liq_top, cup_y0 + cup_h):
-            t = (y - cup_y0) / cup_h
-            half_w = int(cup_w_top // 2 - 1 - t * (cup_w_top - cup_w_bot) // 2)
-            draw.rectangle([ccx - half_w, y, ccx + half_w, y], fill=col)
-        light = (min(col[0] + 60, 255), min(col[1] + 60, 255), min(col[2] + 60, 255))
-        t = (cup_liq_top - cup_y0) / cup_h
-        half_w = int(cup_w_top // 2 - 1 - t * (cup_w_top - cup_w_bot) // 2)
-        draw.rectangle([ccx - half_w, cup_liq_top, ccx + half_w, cup_liq_top + 1], fill=light)
+        cup_top = int(88 * 0.40)
+        cup_bot = int(88 * 0.88)
+        liq_h = int((cup_bot - cup_top) * fiveh_rem / 100)
+        _tint_emoji(arr, fiveh_rem, col, cup_bot - liq_h, cup_bot)
+
+    img = Image.fromarray(arr)
 
     if angle != 0:
         img = img.rotate(angle, expand=True, fillcolor=(0, 0, 0, 0), resample=Image.BICUBIC)
@@ -392,7 +349,6 @@ def _render_icon(weekly_rem, fiveh_rem, angle=0):
         side = min(w, h)
         img = img.crop(((w - side) // 2, (h - side) // 2, (w + side) // 2, (h + side) // 2))
 
-    img = img.resize((44, 44), Image.LANCZOS)
     img.save(ICON_FILE, "PNG")
 
 
