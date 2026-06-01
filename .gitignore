@@ -7,3 +7,4 @@ myocusage_latest.json
 myocusage_response.txt
 *.screenshot.png
 .DS_Store
+myocusage_status.py.bak
